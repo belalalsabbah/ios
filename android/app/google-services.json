@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "463551205492",
+    "project_id": "net-33d75",
+    "storage_bucket": "net-33d75.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:463551205492:android:5d642f0bc3bc52724ac121",
+        "android_client_info": {
+          "package_name": "com.twonet.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD3_X5J3cwSV-mCIT8DvnYCJbAyR3NL4C8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
