@@ -5,24 +5,24 @@ workflows:
     environment:
       flutter: stable
       xcode: latest
+      cocoapods: default
     scripts:
-      - name: Get Flutter packages
-        script: flutter packages pub get
-      - name: Create Podfile if not exists
+      - name: Clean project
         script: |
-          if [ ! -f "ios/Podfile" ]; then
-            echo "platform :ios, '12.0'" > ios/Podfile
-            echo "use_frameworks!" >> ios/Podfile
-            echo "target 'Runner' do" >> ios/Podfile
-            echo "  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))" >> ios/Podfile
-            echo "end" >> ios/Podfile
-          fi
-      - name: Install iOS pods
+          rm -rf ios/Pods
+          rm -rf ios/Podfile.lock
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Generate iOS files
+        script: |
+          cd ios
+          flutter pub get
+      - name: Install pods
         script: |
           cd ios
           pod install --repo-update
       - name: Build iOS
-        script: flutter build ipa --release --no-codesign
+        script: flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
     publishing:
