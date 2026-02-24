@@ -14,7 +14,7 @@ jobs:
     
     steps:
       - name: 📂 Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: 🔧 Setup Flutter
         uses: subosito/flutter-action@v2
@@ -56,7 +56,7 @@ jobs:
           cd ../../..
 
       - name: 📤 Upload IPA as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: twonet_customer_ios_ipa
           path: build/ios/iphoneos/twonet_customer_${{ github.run_number }}.ipa
