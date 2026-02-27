@@ -2,9 +2,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:media_kit/media_kit.dart'; // ✅ إضافة مكتبة media_kit
+import 'package:media_kit/media_kit.dart';
 import 'firebase_options.dart';
-import 'screens/login_screen.dart'; // ✅ أضف هذا السطر
+import 'screens/login_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/notifications_screen.dart';
 import 'screens/ticket_details_screen.dart';
@@ -58,6 +58,7 @@ Future<void> main() async {
     ),
   );
 }
+
 /// ===============================
 /// ROOT APP
 /// ===============================
@@ -87,7 +88,6 @@ class _MyAppState extends State<MyApp> {
     
     // إذا كان هناك توكن، قم بتهيئة PushService
     if (token != null && token.isNotEmpty) {
-      // تأخير بسيط للتأكد من أن كل شيء جاهز
       Future.delayed(const Duration(milliseconds: 500), () {
         PushService.init(token);
       });
@@ -131,26 +131,19 @@ class _MyAppState extends State<MyApp> {
 
           /// 📱 تعريف Routes
           routes: {
-            '/main': (context) {
-              final args = ModalRoute.of(context)?.settings.arguments as Map?;
-              final selectedTab = args?['selectedTab'] ?? 0;
-              return MainNavigation(
-                token: _initialToken ?? '',
-                selectedTab: selectedTab,
-              );
-            },
-            
+            '/login': (context) => const LoginScreen(),
             '/notifications': (context) => NotificationsScreen(
               token: _initialToken ?? '',
               onChanged: () {},
             ),
-            // ✅ ضيفه هنا
-  '/login': (context) => const LoginScreen(),
           },
           
           onGenerateRoute: (settings) {
+            // ✅ معالجة route التذكرة
             if (settings.name == '/ticket-details') {
               final args = settings.arguments;
+              
+              // إذا كانت arguments عبارة عن int (رقم التذكرة)
               if (args is int) {
                 return MaterialPageRoute(
                   builder: (context) => TicketDetailsScreen(
@@ -160,12 +153,54 @@ class _MyAppState extends State<MyApp> {
                   ),
                 );
               }
+              
+              // إذا كانت arguments عبارة عن Map (قد يأتي من الإشعار)
+              if (args is Map) {
+                final ticketId = args['ticketId'] ?? args['openTicketId'];
+                if (ticketId != null) {
+                  int? id = ticketId is int ? ticketId : int.tryParse(ticketId.toString());
+                  if (id != null && id > 0) {
+                    return MaterialPageRoute(
+                      builder: (context) => TicketDetailsScreen(
+                        ticketId: id,
+                        token: _initialToken ?? '',
+                        onTicketUpdated: () {},
+                      ),
+                    );
+                  }
+                }
+              }
+              
+              // في حالة الخطأ
               return MaterialPageRoute(
                 builder: (context) => const Scaffold(
-                  body: Center(child: Text('خطأ: معرف التذكرة غير صحيح')),
+                  body: Center(
+                    child: Text(
+                      'خطأ: معرف التذكرة غير صحيح',
+                      style: TextStyle(fontSize: 18, color: Colors.red),
+                    ),
+                  ),
                 ),
               );
             }
+            
+            // ✅ معالجة route الرئيسية
+            if (settings.name == '/main') {
+              final args = settings.arguments as Map?;
+              final selectedTab = args?['selectedTab'] ?? 0;
+              final openTicketId = args?['openTicketId'];
+              
+              debugPrint('📱 main route - openTicketId: $openTicketId');
+              
+              return MaterialPageRoute(
+                builder: (context) => MainNavigation(
+                  token: _initialToken ?? '',
+                  selectedTab: selectedTab,
+                  openTicketId: openTicketId,
+                ),
+              );
+            }
+            
             return null;
           },
 

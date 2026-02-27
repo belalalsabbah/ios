@@ -373,37 +373,34 @@ class PushService {
       return;
     }
 
-    if (type == 'open_tickets' || action == 'open_tickets_screen' || type == 'ticket_reply') {
+    // ✅ إذا كان الإشعار خاص بتذكرة، نفتح التذكرة مباشرة
+    if (type == 'ticket_reply' && ticketId != null) {
+      int? ticketIdInt = int.tryParse(ticketId.toString());
+      if (ticketIdInt != null && ticketIdInt > 0) {
+        debugPrint("🟢 فتح تذكرة رقم: $ticketIdInt مباشرة");
+        
+        // نفتح main مع بارامترات لفتح التذكرة
+        navigator.pushNamedAndRemoveUntil(
+          '/main',
+          (route) => false,
+          arguments: {
+            'selectedTab': 3,  // تبويب الدعم
+            'openTicketId': ticketIdInt,
+            'fromNotification': true,  // مؤشر أنه من إشعار
+          },
+        );
+        return;
+      }
+    }
+
+    // باقي الحالات
+    if (type == 'open_tickets' || action == 'open_tickets_screen') {
       debugPrint("🟢 فتح شاشة التذاكر (index 3)");
       navigator.pushNamedAndRemoveUntil(
         '/main',
         (route) => false,
         arguments: {'selectedTab': 3},
       );
-      return;
-    }
-
-    if (type == 'ticket_reply' && ticketId != null) {
-      // محاولة تحويل ticketId إلى int بأمان
-      int? ticketIdInt = int.tryParse(ticketId.toString());
-      if (ticketIdInt == null || ticketIdInt <= 0) {
-        debugPrint("❌ ticketId غير صالح: $ticketId");
-        return;
-      }
-
-      debugPrint("🟢 فتح تذكرة رقم: $ticketIdInt");
-      
-      // نفتح main أولاً مع بارامتر إضافي
-      navigator.pushNamedAndRemoveUntil(
-        '/main',
-        (route) => false,
-        arguments: {
-          'selectedTab': 3,
-          'openTicketId': ticketIdInt,
-        },
-      );
-      
-      // ملاحظة: فتح التذكرة سيتم في main_navigation.dart
       return;
     }
 

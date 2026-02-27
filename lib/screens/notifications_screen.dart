@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../models/notification_model.dart';
 import 'notification_details_screen.dart';
+import 'ticket_details_screen.dart'; // ✅ إضافة import للتذكرة
 
 class NotificationsScreen extends StatefulWidget {
   final String token;
@@ -101,62 +102,59 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     }
   }
 
- void _updateFilteredLists() {
-  // ✅ الكل: كل الإشعارات (مع الفواتير)
-  _allNotifications = _allNotifications;
-  
-  // ✅ غير مقروءة: الإشعارات غير المقروءة (مع الفواتير)
-  _unreadNotifications = _allNotifications.where((n) => !n.isRead).toList();
-  
-  // ✅ مقروءة: الإشعارات المقروءة ما عدا الفواتير
-  _readNotifications = _allNotifications.where((n) {
-    // إذا كان إشعار فاتورة، لا تعرضه في المقروءة أبداً
-    if (n.type == NotificationType.renewed) {
-      return false;
-    }
-    // باقي الإشعارات المقروءة تظهر
-    return n.isRead;
-  }).toList();
-}
-
- List<AppNotification> getFilteredNotifications() {
-  List<AppNotification> source;
-  
-  switch (_tabController.index) {
-    case 0: // الكل
-      source = _allNotifications;
-      break;
-    case 1: // غير مقروءة
-      source = _unreadNotifications;
-      break;
-    case 2: // مقروءة
-      source = _readNotifications;
-      break;
-    default:
-      source = _allNotifications;
-  }
-
-  // ✅ إخفاء الفواتير المقروءة من تبويب "الكل" و "المقروءة"
-  if (_tabController.index == 0 || _tabController.index == 2) {
-    source = source.where((n) {
-      // إذا كان إشعار فاتورة ومقروء، لا تعرضه
-      if (n.type == NotificationType.renewed && n.isRead) {
-        return false; // إخفاء الفواتير المقروءة
+  void _updateFilteredLists() {
+    // ✅ الكل: كل الإشعارات (مع الفواتير)
+    _allNotifications = _allNotifications;
+    
+    // ✅ غير مقروءة: الإشعارات غير المقروءة (مع الفواتير)
+    _unreadNotifications = _allNotifications.where((n) => !n.isRead).toList();
+    
+    // ✅ مقروءة: الإشعارات المقروءة ما عدا الفواتير
+    _readNotifications = _allNotifications.where((n) {
+      if (n.type == NotificationType.renewed) {
+        return false;
       }
-      return true; // عرض باقي الإشعارات
+      return n.isRead;
     }).toList();
   }
 
-  if (_searchQuery.isNotEmpty) {
-    source = source.where((n) {
-      return n.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          n.body.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          n.type.displayName.contains(_searchQuery);
-    }).toList();
-  }
+  List<AppNotification> getFilteredNotifications() {
+    List<AppNotification> source;
+    
+    switch (_tabController.index) {
+      case 0: // الكل
+        source = _allNotifications;
+        break;
+      case 1: // غير مقروءة
+        source = _unreadNotifications;
+        break;
+      case 2: // مقروءة
+        source = _readNotifications;
+        break;
+      default:
+        source = _allNotifications;
+    }
 
-  return source;
-}
+    // ✅ إخفاء الفواتير المقروءة من تبويب "الكل" و "المقروءة"
+    if (_tabController.index == 0 || _tabController.index == 2) {
+      source = source.where((n) {
+        if (n.type == NotificationType.renewed && n.isRead) {
+          return false;
+        }
+        return true;
+      }).toList();
+    }
+
+    if (_searchQuery.isNotEmpty) {
+      source = source.where((n) {
+        return n.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+            n.body.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+            n.type.displayName.contains(_searchQuery);
+      }).toList();
+    }
+
+    return source;
+  }
 
   Future<void> _markAsRead(int id) async {
     try {
@@ -430,146 +428,63 @@ class _NotificationsScreenState extends State<NotificationsScreen>
     );
   }
 
-  // ✅ فتح تفاصيل الإشعار في BottomSheet
- void _openNotificationDetails(AppNotification notification) {
-  // إذا كان الإشعار غير مقروء، حدده كمقروء
-  if (!notification.isRead) {
-    _markAsRead(notification.id);
-  }
-  
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (context) => DraggableScrollableSheet(
-      initialChildSize: 0.9,
-      minChildSize: 0.5,
-      maxChildSize: 0.95,
-      builder: (_, controller) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        child: NotificationDetailsScreen(notification: notification),
-      ),
-    ),
-  ).then((_) {
-    // ✅ بعد إغلاق التفاصيل، حدث العداد
-    widget.onChanged(); // هذا بحدث العداد في main_navigation
-    _loadNotifications(); // إعادة تحميل الإشعارات
-  });
-}
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = isDark ? Colors.grey[900] : Colors.grey[50];
-    final cardColor = isDark ? Colors.grey[800]! : Colors.white;
+  // ✅ فتح تفاصيل الإشعار - مع دعم التذاكر
+  void _openNotificationDetails(AppNotification notification) {
+    // إذا كان الإشعار غير مقروء، حدده كمقروء
+    if (!notification.isRead) {
+      _markAsRead(notification.id);
+    }
     
-    final filteredNotifications = getFilteredNotifications();
-
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(
-          title: _isSelectionMode
-              ? Text('${_selectedIds.length} محدد')
-              : const Text('الإشعارات'),
-          bottom: _isSelectionMode
-              ? null
-              : TabBar(
-                  controller: _tabController,
-                  tabs: [
-    Tab(
-  child: Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      const Icon(Icons.notifications, size: 18),
-      const SizedBox(width: 4),
-      Text('الكل (${_allNotifications.length})'), // ✅ مع الفواتير
-    ],
-  ),
-),
-Tab(
-  child: Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      const Icon(Icons.mark_email_read, size: 18),
-      const SizedBox(width: 4),
-      Text('غير مقروءة (${_unreadNotifications.length})'), // ✅ مع الفواتير
-    ],
-  ),
-),
-Tab(
-  child: Row(
-    mainAxisAlignment: MainAxisAlignment.center,
-    children: [
-      const Icon(Icons.drafts, size: 18),
-      const SizedBox(width: 4),
-      Text('مقروءة (${_readNotifications.length})'), // ✅ بدون فواتير
-    ],
-  ),
-),
-                  ],
-                  labelColor: Colors.white,
-                  unselectedLabelColor: Colors.white70,
-                  indicatorColor: Colors.white,
-                  onTap: (index) {
-                    setState(() {});
-                  },
-                ),
-          actions: _buildAppBarActions(),
-        ),
-        
-        body: Container(
-          color: backgroundColor,
-          child: Column(
-            children: [
-              // شريط البحث
-              if (!_isSelectionMode) _buildSearchBar(),
-              
-              // عرض عدد الإشعارات في التبويب الحالي
-              if (filteredNotifications.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      Text(
-                        '${_getTabName()} - ${filteredNotifications.length} إشعار',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade600,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              
-              // قائمة الإشعارات
-              Expanded(
-                child: _isLoading
-                    ? _buildLoadingWidget()
-                    : _error != null
-                        ? _buildErrorWidget()
-                        : filteredNotifications.isEmpty
-                            ? _buildEmptyWidget()
-                            : _buildNotificationsList(cardColor, filteredNotifications),
+    // ✅ إذا كان الإشعار من نوع ticket_reply، افتح التذكرة مباشرة
+    if (notification.type == NotificationType.ticketReply) {
+      final ticketId = notification.data?['ticket_id'];
+      if (ticketId != null) {
+        int? id = ticketId is int ? ticketId : int.tryParse(ticketId.toString());
+        if (id != null && id > 0) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TicketDetailsScreen(
+                ticketId: id,
+                token: widget.token,
+                onTicketUpdated: () {
+                  _loadNotifications();
+                  widget.onChanged();
+                },
               ),
-            ],
+            ),
+          ).then((_) {
+            _loadNotifications();
+            widget.onChanged();
+          });
+          return;
+        }
+      }
+    }
+    
+    // باقي أنواع الإشعارات تفتح في شاشة التفاصيل العادية
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, controller) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
+          child: NotificationDetailsScreen(notification: notification),
         ),
-        
-        // شريط الإجراءات السفلية في وضع التحديد
-        bottomNavigationBar: _isSelectionMode ? _buildSelectionBar() : null,
-        
-        // زر الإجراءات العائمة
-        floatingActionButton: _buildFloatingActionButton(),
       ),
-    );
+    ).then((_) {
+      widget.onChanged();
+      _loadNotifications();
+    });
   }
 
-  // ✅ دالة للحصول على اسم التبويب الحالي
   String _getTabName() {
     switch (_tabController.index) {
       case 0:
@@ -586,37 +501,28 @@ Tab(
   List<Widget> _buildAppBarActions() {
     if (_isSelectionMode) {
       return [
-        // إلغاء التحديد
         IconButton(
           icon: const Icon(Icons.close),
           onPressed: _clearSelection,
           tooltip: 'إلغاء',
         ),
-        
-        // تحديد الكل
         IconButton(
           icon: const Icon(Icons.select_all),
           onPressed: _selectAll,
           tooltip: 'تحديد الكل',
         ),
-        
-        // حذف المحدد
         if (_selectedIds.isNotEmpty)
           IconButton(
             icon: const Icon(Icons.delete, color: Colors.red),
             onPressed: _deleteSelected,
             tooltip: 'حذف المحدد',
           ),
-        
-        // تعليم كمقروء
         if (_selectedIds.isNotEmpty)
           IconButton(
             icon: const Icon(Icons.mark_email_read),
             onPressed: _markSelectedAsRead,
             tooltip: 'تعليم كمقروء',
           ),
-        
-        // تعليم كغير مقروء
         if (_selectedIds.isNotEmpty)
           IconButton(
             icon: const Icon(Icons.mark_email_unread),
@@ -627,7 +533,6 @@ Tab(
     }
 
     return [
-      // زر البحث
       IconButton(
         icon: Icon(_isSearching ? Icons.close : Icons.search),
         onPressed: () {
@@ -640,14 +545,10 @@ Tab(
           });
         },
       ),
-      
-      // زر تحديث
       IconButton(
         icon: const Icon(Icons.refresh),
         onPressed: _loadNotifications,
       ),
-      
-      // قائمة الإجراءات
       PopupMenuButton<String>(
         onSelected: (value) {
           if (value == 'mark_all_read') {
@@ -684,7 +585,6 @@ Tab(
     ];
   }
 
-  // شريط البحث
   Widget _buildSearchBar() {
     if (!_isSearching) return const SizedBox.shrink();
 
@@ -720,35 +620,33 @@ Tab(
     );
   }
 
-  // قائمة الإشعارات
- Widget _buildNotificationsList(Color cardColor, List<AppNotification> notifications) {
-  // ✅ فلترة إضافية: إخفاء الفواتير المقروءة
-  final filteredNotifications = notifications.where((n) {
-    if (n.type == NotificationType.renewed && n.isRead) {
-      return false; // إخفاء الفواتير المقروءة
-    }
-    return true;
-  }).toList();
+  Widget _buildNotificationsList(Color cardColor, List<AppNotification> notifications) {
+    final filteredNotifications = notifications.where((n) {
+      if (n.type == NotificationType.renewed && n.isRead) {
+        return false;
+      }
+      return true;
+    }).toList();
 
-  return RefreshIndicator(
-    onRefresh: _loadNotifications,
-    color: Colors.blue.shade700,
-    child: ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: filteredNotifications.length,
-      itemBuilder: (context, index) {
-        final notification = filteredNotifications[index];
-        final isSelected = _selectedIds.contains(notification.id);
-        
-        return _buildNotificationCard(
-          notification,
-          cardColor,
-          isSelected,
-        );
-      },
-    ),
-  );
-}
+    return RefreshIndicator(
+      onRefresh: _loadNotifications,
+      color: Colors.blue.shade700,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: filteredNotifications.length,
+        itemBuilder: (context, index) {
+          final notification = filteredNotifications[index];
+          final isSelected = _selectedIds.contains(notification.id);
+          
+          return _buildNotificationCard(
+            notification,
+            cardColor,
+            isSelected,
+          );
+        },
+      ),
+    );
+  }
 
   Widget _buildNotificationCard(
     AppNotification notification,
@@ -756,6 +654,7 @@ Tab(
     bool isSelected,
   ) {
     final type = notification.type;
+    final isTicketReply = notification.type == NotificationType.ticketReply;
     
     return GestureDetector(
       onTap: _isSelectionMode
@@ -803,7 +702,7 @@ Tab(
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // أيقونة النوع مع تحسين التمييز
+                    // أيقونة النوع
                     Stack(
                       children: [
                         Container(
@@ -822,7 +721,6 @@ Tab(
                             size: 24,
                           ),
                         ),
-                        // علامة "+" للتمديد (إضافة أيام)
                         if (notification.isExtendDays)
                           Positioned(
                             bottom: 0,
@@ -840,7 +738,6 @@ Tab(
                               ),
                             ),
                           ),
-                        // علامة "₪" للفاتورة (تجديد كامل)
                         if (notification.isRenewed)
                           Positioned(
                             bottom: 0,
@@ -858,6 +755,24 @@ Tab(
                                   fontSize: 10,
                                   fontWeight: FontWeight.bold,
                                 ),
+                              ),
+                            ),
+                          ),
+                        // ✅ إضافة أيقونة خاصة للتذاكر
+                        if (isTicketReply)
+                          Positioned(
+                            top: 0,
+                            right: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(2),
+                              decoration: const BoxDecoration(
+                                color: Colors.blue,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.link,
+                                color: Colors.white,
+                                size: 10,
                               ),
                             ),
                           ),
@@ -935,7 +850,7 @@ Tab(
                           
                           const SizedBox(height: 8),
                           
-                          // التاريخ والوقت
+                          // التاريخ والوقت + رابط التذكرة
                           Row(
                             children: [
                               Icon(
@@ -953,8 +868,64 @@ Tab(
                               ),
                               const Spacer(),
                               
+                              // ✅ إضافة رابط "عرض التذكرة" للإشعارات من نوع ticket_reply
+                              if (isTicketReply && notification.data?['ticket_id'] != null)
+                                GestureDetector(
+                                  onTap: () {
+                                    final ticketId = notification.data?['ticket_id'];
+                                    if (ticketId != null) {
+                                      int? id = ticketId is int ? ticketId : int.tryParse(ticketId.toString());
+                                      if (id != null && id > 0) {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (context) => TicketDetailsScreen(
+                                              ticketId: id,
+                                              token: widget.token,
+                                              onTicketUpdated: () {
+                                                _loadNotifications();
+                                                widget.onChanged();
+                                              },
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue.shade50,
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.blue.shade200),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const Icon(
+                                          Icons.link,
+                                          size: 12,
+                                          color: Colors.blue,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'عرض التذكرة',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.blue.shade700,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              
                               // مؤشر غير مقروء
-                              if (!notification.isRead && !_isSelectionMode)
+                              if (!notification.isRead && !_isSelectionMode && !isTicketReply)
                                 Container(
                                   width: 8,
                                   height: 8,
@@ -998,7 +969,6 @@ Tab(
     );
   }
 
-  // شريط التحديد السفلي
   Widget _buildSelectionBar() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1047,7 +1017,6 @@ Tab(
     );
   }
 
-  // زر الإجراءات العائمة
   Widget _buildFloatingActionButton() {
     if (_isLoading || _error != null || getFilteredNotifications().isEmpty) {
       return FloatingActionButton(
@@ -1073,7 +1042,6 @@ Tab(
     );
   }
 
-  // واجهات التحميل والخطأ
   Widget _buildLoadingWidget() {
     return Center(
       child: Column(
@@ -1123,21 +1091,21 @@ Tab(
     Color color;
 
     switch (_tabController.index) {
-      case 1: // غير مقروءة
+      case 1:
         message = _searchQuery.isNotEmpty
             ? 'لا توجد نتائج للبحث في الإشعارات غير المقروءة'
             : 'لا توجد إشعارات غير مقروءة';
         icon = _searchQuery.isNotEmpty ? Icons.search_off : Icons.mark_email_read;
         color = Colors.green;
         break;
-      case 2: // مقروءة
+      case 2:
         message = _searchQuery.isNotEmpty
             ? 'لا توجد نتائج للبحث في الإشعارات المقروءة'
             : 'لا توجد إشعارات مقروءة';
         icon = _searchQuery.isNotEmpty ? Icons.search_off : Icons.drafts;
         color = Colors.orange;
         break;
-      default: // الكل
+      default:
         message = _searchQuery.isNotEmpty
             ? 'لا توجد نتائج للبحث'
             : 'لا توجد إشعارات';
@@ -1166,6 +1134,110 @@ Tab(
               label: const Text('مسح البحث'),
             ),
         ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDark ? Colors.grey[900] : Colors.grey[50];
+    final cardColor = isDark ? Colors.grey[800]! : Colors.white;
+    
+    final filteredNotifications = getFilteredNotifications();
+
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: _isSelectionMode
+              ? Text('${_selectedIds.length} محدد')
+              : const Text('الإشعارات'),
+          bottom: _isSelectionMode
+              ? null
+              : TabBar(
+                  controller: _tabController,
+                  tabs: [
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.notifications, size: 18),
+                          const SizedBox(width: 4),
+                          Text('الكل (${_allNotifications.length})'),
+                        ],
+                      ),
+                    ),
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.mark_email_read, size: 18),
+                          const SizedBox(width: 4),
+                          Text('غير مقروءة (${_unreadNotifications.length})'),
+                        ],
+                      ),
+                    ),
+                    Tab(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.drafts, size: 18),
+                          const SizedBox(width: 4),
+                          Text('مقروءة (${_readNotifications.length})'),
+                        ],
+                      ),
+                    ),
+                  ],
+                  labelColor: Colors.white,
+                  unselectedLabelColor: Colors.white70,
+                  indicatorColor: Colors.white,
+                  onTap: (index) {
+                    setState(() {});
+                  },
+                ),
+          actions: _buildAppBarActions(),
+        ),
+        
+        body: Container(
+          color: backgroundColor,
+          child: Column(
+            children: [
+              if (!_isSelectionMode) _buildSearchBar(),
+              
+              if (filteredNotifications.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Text(
+                        '${_getTabName()} - ${filteredNotifications.length} إشعار',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              
+              Expanded(
+                child: _isLoading
+                    ? _buildLoadingWidget()
+                    : _error != null
+                        ? _buildErrorWidget()
+                        : filteredNotifications.isEmpty
+                            ? _buildEmptyWidget()
+                            : _buildNotificationsList(cardColor, filteredNotifications),
+              ),
+            ],
+          ),
+        ),
+        
+        bottomNavigationBar: _isSelectionMode ? _buildSelectionBar() : null,
+        
+        floatingActionButton: _buildFloatingActionButton(),
       ),
     );
   }

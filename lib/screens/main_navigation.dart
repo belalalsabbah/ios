@@ -13,20 +13,23 @@ import 'invoices_screen.dart';
 import 'notifications_screen.dart';
 import 'support_screen.dart';
 import 'my_tickets_screen.dart';
+import 'ticket_details_screen.dart';
 import 'admin_webview.dart';
 import 'iptv/xtream_login_screen.dart';
 import 'iptv/iptv_screen.dart';
 import 'iptv/iptv_settings_screen.dart';
-import 'iptv/new_iptv_screen.dart'; // ✅ استيراد الشاشة الجديدة
+import 'iptv/new_iptv_screen.dart';
 
 class MainNavigation extends StatefulWidget {
   final String token;
   final int selectedTab;
-  
+  final int? openTicketId;
+
   const MainNavigation({
-    super.key, 
+    super.key,
     required this.token,
     this.selectedTab = 0,
+    this.openTicketId,
   });
 
   @override
@@ -46,7 +49,8 @@ class _MainNavigationState extends State<MainNavigation> {
   final _iptvKey = GlobalKey<NavigatorState>();
 
   int unreadCount = 0;
-  bool _shouldOpenTickets = false;
+  bool _shouldOpenTicket = false;
+  int? _ticketIdToOpen;
   
   bool _isXtreamLoggedIn = false;
   XtreamService? _xtreamService;
@@ -64,6 +68,13 @@ class _MainNavigationState extends State<MainNavigation> {
     super.initState();
     
     _index = widget.selectedTab;
+    
+    // ✅ إذا كان في openTicketId من الإشعار
+    if (widget.openTicketId != null) {
+      debugPrint('📱 initState: openTicketId = ${widget.openTicketId}');
+      _ticketIdToOpen = widget.openTicketId;
+      _shouldOpenTicket = true;
+    }
     
     _loadUsername();
     _detectNetworkAndSetUrl();
@@ -93,41 +104,74 @@ class _MainNavigationState extends State<MainNavigation> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_shouldOpenTickets) {
+    
+    // ✅ فتح التذكرة بعد بناء الواجهة
+    if (_shouldOpenTicket && _ticketIdToOpen != null) {
+      debugPrint('📱 didChangeDependencies: فتح تذكرة $_ticketIdToOpen');
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _openTicketsDirectly();
+        _openTicketFromNotification(_ticketIdToOpen!);
       });
-      _shouldOpenTickets = false;
+      _shouldOpenTicket = false;
     }
   }
 
-Future<void> _loadXtreamData() async {
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final url = prefs.getString('xtream_url');
-    final port = prefs.getString('xtream_port');
-    final user = prefs.getString('xtream_user');
-    final pass = prefs.getString('xtream_pass');
-    final externalUrl = prefs.getString('xtream_external_url');
-    final externalPort = prefs.getString('xtream_external_port');
-    final useExternal = prefs.getBool('xtream_use_external') ?? false;
+  // ✅ دالة جديدة لفتح التذكرة من الإشعار
+  void _openTicketFromNotification(int ticketId) {
+    debugPrint('📱 فتح تذكرة $ticketId من الإشعار');
     
-    if (url != null && port != null && user != null && pass != null) {
-      _xtreamService = XtreamService(
-        baseUrl: url,
-        port: port,
-        username: user,
-        password: pass,
-        externalBaseUrl: useExternal ? externalUrl : null,
-        externalPort: useExternal ? externalPort : null,
-      );
-      _isXtreamLoggedIn = true;
-      print('✅ تم تحميل بيانات Xtream بنجاح');
+    // التأكد أننا في تبويب الدعم
+    if (_index != 3) {
+      setState(() {
+        _index = 3;
+      });
     }
-  } catch (e) {
-    print('خطأ في تحميل بيانات Xtream: $e');
+    
+    // انتظر حتى تتبنى شاشة الدعم
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (_supportKey.currentContext != null) {
+        debugPrint('📱 فتح تفاصيل التذكرة $ticketId');
+        Navigator.of(_supportKey.currentContext!).push(
+          MaterialPageRoute(
+            builder: (context) => TicketDetailsScreen(
+              ticketId: ticketId,
+              token: widget.token,
+              onTicketUpdated: () {},
+            ),
+          ),
+        );
+      } else {
+        debugPrint('❌ _supportKey.currentContext is null');
+      }
+    });
   }
-}
+
+  Future<void> _loadXtreamData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final url = prefs.getString('xtream_url');
+      final port = prefs.getString('xtream_port');
+      final user = prefs.getString('xtream_user');
+      final pass = prefs.getString('xtream_pass');
+      final externalUrl = prefs.getString('xtream_external_url');
+      final externalPort = prefs.getString('xtream_external_port');
+      final useExternal = prefs.getBool('xtream_use_external') ?? false;
+      
+      if (url != null && port != null && user != null && pass != null) {
+        _xtreamService = XtreamService(
+          baseUrl: url,
+          port: port,
+          username: user,
+          password: pass,
+          externalBaseUrl: useExternal ? externalUrl : null,
+          externalPort: useExternal ? externalPort : null,
+        );
+        _isXtreamLoggedIn = true;
+        print('✅ تم تحميل بيانات Xtream بنجاح');
+      }
+    } catch (e) {
+      print('خطأ في تحميل بيانات Xtream: $e');
+    }
+  }
 
   Future<void> _loadUsername() async {
     final prefs = await SharedPreferences.getInstance();
@@ -178,11 +222,11 @@ Future<void> _loadXtreamData() async {
     
     if (type == 'open_tickets' || action == 'open_tickets_screen') {
       _switchTab(3);
-      _shouldOpenTickets = true;
+      _shouldOpenTicket = true;
     }
     else if (type == 'ticket_reply' && ticketId != null) {
       _switchTab(3);
-      _shouldOpenTickets = true;
+      _shouldOpenTicket = true;
     }
     else {
       _switchTab(2);
@@ -341,68 +385,64 @@ Future<void> _loadXtreamData() async {
     }
   }
 
-Future<void> _logout() async {
-  final confirm = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-      ),
-      title: const Text(
-        'تأكيد تسجيل الخروج',
-        style: TextStyle(fontWeight: FontWeight.bold),
-      ),
-      content: const Text('هل أنت متأكد من تسجيل الخروج؟'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          style: TextButton.styleFrom(
-            foregroundColor: Colors.grey,
-          ),
-          child: const Text('إلغاء'),
+  Future<void> _logout() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
         ),
-        ElevatedButton(
-          onPressed: () => Navigator.pop(context, true),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
+        title: const Text(
+          'تأكيد تسجيل الخروج',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        content: const Text('هل أنت متأكد من تسجيل الخروج؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.grey,
             ),
+            child: const Text('إلغاء'),
           ),
-          child: const Text('تسجيل خروج'),
-        ),
-      ],
-    ),
-  );
-
-  if (confirm != true) return;
-
-  // ✅ مسح التوكن من ApiService
-  await ApiService.logout(
-    token: widget.token,
-    context: context,
-  );
-
-  // ✅ مسح البيانات من SharedPreferences
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.remove('auth_token');
-  await prefs.remove('username');
-  
-  // ✅ مسح بيانات Xtream إذا موجودة
-  await prefs.remove('xtream_url');
-  await prefs.remove('xtream_port');
-  await prefs.remove('xtream_user');
-  await prefs.remove('xtream_pass');
-
-  if (mounted) {
-    // ✅ الرجوع لشاشة Login
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      '/login',
-      (route) => false, // يمسح كل الشاشات السابقة
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('تسجيل خروج'),
+          ),
+        ],
+      ),
     );
+
+    if (confirm != true) return;
+
+    await ApiService.logout(
+      token: widget.token,
+      context: context,
+    );
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('auth_token');
+    await prefs.remove('username');
+    
+    await prefs.remove('xtream_url');
+    await prefs.remove('xtream_port');
+    await prefs.remove('xtream_user');
+    await prefs.remove('xtream_pass');
+
+    if (mounted) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/login',
+        (route) => false,
+      );
+    }
   }
-}
 
   @override
   Widget build(BuildContext context) {
@@ -427,48 +467,44 @@ Future<void> _logout() async {
           title: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-             // اليسار: زر تسجيل الخروج + زر FCM (الخروج أولاً)
-Row(
-  mainAxisSize: MainAxisSize.min,
-  children: [
-    // ✅ زر تسجيل الخروج - أول زر لليسار
-    Container(
-      decoration: BoxDecoration(
-        color: Colors.red.withOpacity(0.1),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.red.withOpacity(0.3), width: 1),
-      ),
-      child: IconButton(
-        icon: const Icon(Icons.logout_rounded, color: Colors.red, size: 22),
-        onPressed: _logout,
-        splashRadius: 24,
-        tooltip: 'تسجيل الخروج',
-      ),
-    ),
-    const SizedBox(width: 8),
-    // ✅ زر FCM - ثاني زر
-    Container(
-      decoration: BoxDecoration(
-        color: Colors.orange.withOpacity(0.1),
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1),
-      ),
-      child: IconButton(
-        icon: const Icon(Icons.science, color: Colors.orange, size: 18),
-        onPressed: _showFcmTest,
-        splashRadius: 20,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(
-          minWidth: 32,
-          minHeight: 32,
-        ),
-        tooltip: 'اختبار FCM',
-      ),
-    ),
-  ],
-),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.red.withOpacity(0.3), width: 1),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.logout_rounded, color: Colors.red, size: 22),
+                      onPressed: _logout,
+                      splashRadius: 24,
+                      tooltip: 'تسجيل الخروج',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.1),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1),
+                    ),
+                    child: IconButton(
+                      icon: const Icon(Icons.science, color: Colors.orange, size: 18),
+                      onPressed: _showFcmTest,
+                      splashRadius: 20,
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(
+                        minWidth: 32,
+                        minHeight: 32,
+                      ),
+                      tooltip: 'اختبار FCM',
+                    ),
+                  ),
+                ],
+              ),
 
-              // الوسط: العنوان الرئيسي
               Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -477,11 +513,9 @@ Row(
                 ],
               ),
               
-              // اليمين: اسم المستخدم + زر الإعدادات (لـ belal فقط)
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // زر الإعدادات - يظهر فقط للمستخدم belal
                   if (_username == 'belal')
                     Container(
                       decoration: BoxDecoration(
@@ -497,7 +531,6 @@ Row(
                       ),
                     ),
                   if (_username == 'belal') const SizedBox(width: 8),
-                  // اسم المستخدم
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     decoration: BoxDecoration(
@@ -572,31 +605,28 @@ Row(
               ),
             ),
 
-           
-
-// في بناء Offstage للـ IPTV
-Offstage(
-  offstage: _index != 4,
-  child: Navigator(
-    key: _iptvKey,
-    onGenerateRoute: (_) => MaterialPageRoute(
-      builder: (_) {
-        if (_isXtreamLoggedIn && _xtreamService != null) {
-          return NewIptvScreen(xtreamService: _xtreamService!); // ✅ استخدام الشاشة الجديدة
-        } else {
-          return XtreamLoginScreen(
-            onLoginSuccess: (service) {
-              setState(() {
-                _xtreamService = service;
-                _isXtreamLoggedIn = true;
-              });
-            },
-          );
-        }
-      },
-    ),
-  ),
-),
+            Offstage(
+              offstage: _index != 4,
+              child: Navigator(
+                key: _iptvKey,
+                onGenerateRoute: (_) => MaterialPageRoute(
+                  builder: (_) {
+                    if (_isXtreamLoggedIn && _xtreamService != null) {
+                      return NewIptvScreen(xtreamService: _xtreamService!);
+                    } else {
+                      return XtreamLoginScreen(
+                        onLoginSuccess: (service) {
+                          setState(() {
+                            _xtreamService = service;
+                            _isXtreamLoggedIn = true;
+                          });
+                        },
+                      );
+                    }
+                  },
+                ),
+              ),
+            ),
 
             if (_username == 'admin' || _username == 'belal')
               Offstage(

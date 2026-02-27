@@ -16,10 +16,11 @@ class MyTicketsScreen extends StatefulWidget {
   });
 
   @override
-  State<MyTicketsScreen> createState() => _MyTicketsScreenState();
+  State<MyTicketsScreen> createState() => MyTicketsScreenState(); // ✅ تغيير إلى public
 }
 
-class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProviderStateMixin {
+// ✅ جعل الكلاس public (إزالة _)
+class MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   List<Ticket> _tickets = [];
   bool _isLoading = true;
