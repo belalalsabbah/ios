@@ -82,13 +82,16 @@ class _StatusScreenState extends State<StatusScreen>
 void initState() {
   super.initState();
 
-  // ✅ Pulse animation: 20 ثانية توقف + 1 ثانية وميض
+  // ✅ Pulse animation: يظهر 20 ثانية، يختفي 1 ثانية
   _pulseController = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 1000), // وميض لمدة ثانية واحدة
+    duration: const Duration(milliseconds: 1000), // مدة الاختفاء 1 ثانية
   );
   
-  // بدء الدورة الأولى بعد 20 ثانية
+  // نبدأ بالظهور
+  _pulseController.value = 1.0; // يبدأ ظاهر
+  
+  // بدء الدورة
   _startPulseCycle();
 
   _slideController = AnimationController(
@@ -101,10 +104,13 @@ void initState() {
     duration: const Duration(seconds: 1),
   )..forward();
 
-  _pulseAnimation = CurvedAnimation(
+  _pulseAnimation = Tween<double>(
+    begin: 0.0, // مختفي
+    end: 1.0,   // ظاهر
+  ).animate(CurvedAnimation(
     parent: _pulseController,
     curve: Curves.easeInOut,
-  );
+  ));
 
   _slideAnimation = Tween<Offset>(
     begin: const Offset(0, 0.5),
@@ -119,29 +125,28 @@ void initState() {
   PushService.init(widget.token);
 }
 
-// ✅ دالة لإدارة دورات الوميض
+// ✅ دالة لإدارة دورات الظهور والاختفاء (20 ثانية ظاهر، 1 ثانية مختفي)
 void _startPulseCycle() {
+  // نبدأ ظاهر
+  _pulseController.value = 1.0;
+  
   Future.delayed(const Duration(seconds: 20), () {
     if (mounted) {
-      // وميض لمدة ثانية (تكبير)
-      _pulseController.forward().then((_) {
-        // ثم الرجوع للوضع الطبيعي (تصغير)
-        _pulseController.reverse().then((_) {
-          // بعد انتهاء الوميض، نبدأ الدورة من جديد
-          _startPulseCycle();
+      // بعد 20 ثانية، نختفي لمدة ثانية
+      _pulseController.reverse().then((_) {
+        // بعد الاختفاء، نبدأ الدورة من جديد (نظهر بعد ثانية)
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            _pulseController.forward().then((_) {
+              // نبدأ الدورة من جديد
+              _startPulseCycle();
+            });
+          }
         });
       });
     }
   });
 }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    _slideController.dispose();
-    _progressController.dispose();
-    super.dispose();
-  }
 
   /// ================= API =================
 
