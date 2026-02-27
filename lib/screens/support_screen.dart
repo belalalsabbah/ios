@@ -72,13 +72,24 @@ class _SupportScreenState extends State<SupportScreen> {
     );
   }
 
-  // ✅ دالة فتح شاشة إضافة أيام
-  void _openAddDaysScreen() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => AddDaysScreen(
-          token: widget.token,
+  // ✅ دالة فتح شاشة إضافة أيام كـ BottomSheet
+  void _openAddDaysBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.9,
+        minChildSize: 0.5,
+        maxChildSize: 0.95,
+        builder: (_, controller) => Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: AddDaysScreen(
+            token: widget.token,
+          ),
         ),
       ),
     ).then((_) {
@@ -313,13 +324,13 @@ void _showInstallDialog() {
       child: SafeArea(
         child: Row(
           children: [
-            // زر إضافة أيام
+            // زر إضافة أيام - الآن يفتح BottomSheet
             Expanded(
               child: _buildQuickActionButton(
                 icon: Icons.calendar_today,
                 label: 'إضافة أيام',
                 color: Colors.green,
-                onTap: _openAddDaysScreen,
+                onTap: _openAddDaysBottomSheet,  // ✅ تغيير هنا
               ),
             ),
             const SizedBox(width: 8),

@@ -48,7 +48,8 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
 
   // ✅ معالجة السحب للإغلاق
   void _handleDragUpdate(DragUpdateDetails details) {
-    if (_scrollController.position.pixels <= 0 && details.delta.dy > 0) {
+    // فقط إذا كان السحب للأسفل والمحتوى في أعلى الصفحة
+    if (_scrollController.hasClients && _scrollController.position.pixels <= 0 && details.delta.dy > 0) {
       setState(() {
         _dragOffset += details.delta.dy;
         _isDragging = true;
@@ -65,6 +66,13 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
         _isDragging = false;
       });
     }
+  }
+
+  void _handleDragCancel() {
+    setState(() {
+      _dragOffset = 0;
+      _isDragging = false;
+    });
   }
 
   Future<void> _loadTicketDetails() async {
@@ -182,333 +190,321 @@ class _TicketDetailsScreenState extends State<TicketDetailsScreen> {
   Widget _buildContent() {
     final ticket = _ticket!;
     
-    return NotificationListener<ScrollNotification>(
-      onNotification: (scrollNotification) {
-        if (scrollNotification is ScrollStartNotification) {
-          setState(() => _isDragging = false);
-        }
-        return false;
-      },
-      child: GestureDetector(
-        onVerticalDragUpdate: _handleDragUpdate,
-        onVerticalDragEnd: _handleDragEnd,
-        onVerticalDragCancel: () {
-          setState(() {
-            _dragOffset = 0;
-            _isDragging = false;
-          });
-        },
-        behavior: HitTestBehavior.opaque,
-        child: Stack(
-          children: [
-            // ✅ مؤشر السحب للإغلاق
-            if (_dragOffset > 0)
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: _dragOffset.clamp(0, _closeThreshold + 50),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [
-                        _dragOffset > _closeThreshold
-                            ? Colors.red.withOpacity(0.3)
-                            : Colors.grey.withOpacity(0.2),
-                        Colors.transparent,
-                      ],
-                    ),
+    return GestureDetector(
+      // ✅ معالجة السحب العمودي
+      onVerticalDragUpdate: _handleDragUpdate,
+      onVerticalDragEnd: _handleDragEnd,
+      onVerticalDragCancel: _handleDragCancel,
+      behavior: HitTestBehavior.opaque,
+      child: Stack(
+        children: [
+          // ✅ مؤشر السحب للإغلاق
+          if (_dragOffset > 0)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: _dragOffset.clamp(0, _closeThreshold + 50),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      _dragOffset > _closeThreshold
+                          ? Colors.red.withOpacity(0.3)
+                          : Colors.grey.withOpacity(0.2),
+                      Colors.transparent,
+                    ],
                   ),
-                  child: Center(
-                    child: AnimatedOpacity(
-                      opacity: _dragOffset > 30 ? 1.0 : 0.0,
-                      duration: const Duration(milliseconds: 200),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            _dragOffset > _closeThreshold
-                                ? Icons.check_circle
-                                : Icons.arrow_upward,
+                ),
+                child: Center(
+                  child: AnimatedOpacity(
+                    opacity: _dragOffset > 30 ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          _dragOffset > _closeThreshold
+                              ? Icons.check_circle
+                              : Icons.arrow_upward,
+                          color: _dragOffset > _closeThreshold
+                              ? Colors.red
+                              : Colors.grey,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _dragOffset > _closeThreshold
+                              ? 'اترك للإغلاق'
+                              : 'اسحب للأسفل للإغلاق',
+                          style: TextStyle(
                             color: _dragOffset > _closeThreshold
                                 ? Colors.red
                                 : Colors.grey,
+                            fontWeight: FontWeight.bold,
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _dragOffset > _closeThreshold
-                                ? 'اترك للإغلاق'
-                                : 'اسحب للأسفل للإغلاق',
-                            style: TextStyle(
-                              color: _dragOffset > _closeThreshold
-                                  ? Colors.red
-                                  : Colors.grey,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
-            
-            // ✅ المحتوى الرئيسي مع تحريك للأسفل عند السحب
-            Transform.translate(
-              offset: Offset(0, _dragOffset),
-              child: Column(
-                children: [
-                  // معلومات التذكرة
-                  Expanded(
-                    child: ListView(
-                      controller: _scrollController,
-                      physics: _isDragging 
-                          ? const NeverScrollableScrollPhysics()
-                          : const AlwaysScrollableScrollPhysics(),
-                      padding: const EdgeInsets.all(16),
-                      children: [
-                        // رأس التذكرة
+            ),
+          
+          // ✅ المحتوى الرئيسي مع تحريك للأسفل عند السحب
+          Transform.translate(
+            offset: Offset(0, _dragOffset),
+            child: Column(
+              children: [
+                // معلومات التذكرة
+                Expanded(
+                  child: ListView(
+                    controller: _scrollController,
+                    physics: _isDragging 
+                        ? const NeverScrollableScrollPhysics()
+                        : const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      // رأس التذكرة
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              ticket.type.color.withOpacity(0.1),
+                              Colors.white,
+                            ],
+                            begin: Alignment.topRight,
+                            end: Alignment.bottomLeft,
+                          ),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(
+                            color: ticket.type.color.withOpacity(0.3),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: ticket.type.color.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(
+                                    ticket.type.icon,
+                                    color: ticket.type.color,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        ticket.type.displayName,
+                                        style: TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: ticket.type.color,
+                                        ),
+                                      ),
+                                      Text(
+                                        _formatDate(ticket.createdAt),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey.shade600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: ticket.isOpen
+                                        ? Colors.orange.withOpacity(0.1)
+                                        : Colors.green.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(20),
+                                  ),
+                                  child: Text(
+                                    ticket.isOpen ? 'مفتوحة' : 'مغلقة',
+                                    style: TextStyle(
+                                      color: ticket.isOpen ? Colors.orange : Colors.green,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            
+                            const SizedBox(height: 16),
+                            
+                            // رسالة المستخدم
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.person,
+                                        size: 16,
+                                        color: Colors.grey.shade600,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'رسالتك',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.grey.shade700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    ticket.message,
+                                    style: const TextStyle(height: 1.5),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 16),
+
+                      // الردود
+                      if (ticket.replies.isNotEmpty) ...[
                         Container(
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                ticket.type.color.withOpacity(0.1),
-                                Colors.white,
-                              ],
-                              begin: Alignment.topRight,
-                              end: Alignment.bottomLeft,
-                            ),
+                            color: Colors.blue.shade50,
                             borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: ticket.type.color.withOpacity(0.3),
-                            ),
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: BoxDecoration(
-                                      color: ticket.type.color.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: Icon(
-                                      ticket.type.icon,
-                                      color: ticket.type.color,
-                                    ),
+                                  Icon(
+                                    Icons.reply_all,
+                                    color: Colors.blue.shade700,
                                   ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          ticket.type.displayName,
-                                          style: TextStyle(
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.bold,
-                                            color: ticket.type.color,
-                                          ),
-                                        ),
-                                        Text(
-                                          _formatDate(ticket.createdAt),
-                                          style: TextStyle(
-                                            fontSize: 12,
-                                            color: Colors.grey.shade600,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 6,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: ticket.isOpen
-                                          ? Colors.orange.withOpacity(0.1)
-                                          : Colors.green.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      ticket.isOpen ? 'مفتوحة' : 'مغلقة',
-                                      style: TextStyle(
-                                        color: ticket.isOpen ? Colors.orange : Colors.green,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'المحادثة (${ticket.replies.length})',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue.shade700,
                                     ),
                                   ),
                                 ],
                               ),
-                              
-                              const SizedBox(height: 16),
-                              
-                              // رسالة المستخدم
-                              Container(
-                                padding: const EdgeInsets.all(16),
-                                decoration: BoxDecoration(
-                                  color: Colors.grey.shade50,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Icon(
-                                          Icons.person,
-                                          size: 16,
-                                          color: Colors.grey.shade600,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'رسالتك',
-                                          style: TextStyle(
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.grey.shade700,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      ticket.message,
-                                      style: const TextStyle(height: 1.5),
-                                    ),
-                                  ],
+                              const SizedBox(height: 12),
+                              ...ticket.replies.map((reply) => _buildReplyItem(reply)),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 80), // مساحة للرد
+                      
+                      // ✅ تلميح السحب للإغلاق
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.only(bottom: 20),
+                          child: Column(
+                            children: [
+                              Icon(
+                                Icons.keyboard_arrow_down,
+                                color: Colors.grey.shade400,
+                                size: 30,
+                              ),
+                              Text(
+                                'اسحب للأسفل للإغلاق',
+                                style: TextStyle(
+                                  color: Colors.grey.shade400,
+                                  fontSize: 12,
                                 ),
                               ),
                             ],
                           ),
                         ),
+                      ),
+                    ],
+                  ),
+                ),
 
-                        const SizedBox(height: 16),
-
-                        // الردود
-                        if (ticket.replies.isNotEmpty) ...[
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(16),
+                // مربع الرد
+                if (ticket.isOpen)
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.grey.withOpacity(0.2),
+                          blurRadius: 10,
+                          offset: const Offset(0, -5),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _replyController,
+                            decoration: InputDecoration(
+                              hintText: 'اكتب ردك هنا...',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.reply_all,
-                                      color: Colors.blue.shade700,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      'المحادثة (${ticket.replies.length})',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.blue.shade700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 12),
-                                ...ticket.replies.map((reply) => _buildReplyItem(reply)),
-                              ],
-                            ),
+                            maxLines: null,
                           ),
-                        ],
-
-                        const SizedBox(height: 80), // مساحة للرد
-                        
-                        // ✅ تلميح السحب للإغلاق
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.only(bottom: 20),
-                            child: Column(
-                              children: [
-                                Icon(
-                                  Icons.keyboard_arrow_down,
-                                  color: Colors.grey.shade400,
-                                  size: 30,
-                                ),
-                                Text(
-                                  'اسحب للأسفل للإغلاق',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ],
-                            ),
+                        ),
+                        const SizedBox(width: 8),
+                        CircleAvatar(
+                          backgroundColor: _isSending ? Colors.grey : Colors.blue.shade700,
+                          child: IconButton(
+                            icon: _isSending
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.white,
+                                    ),
+                                  )
+                                : const Icon(Icons.send, color: Colors.white),
+                            onPressed: _isSending ? null : _sendReply,
                           ),
                         ),
                       ],
                     ),
                   ),
-
-                  // مربع الرد
-                  if (ticket.isOpen)
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.grey.withOpacity(0.2),
-                            blurRadius: 10,
-                            offset: const Offset(0, -5),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _replyController,
-                              decoration: InputDecoration(
-                                hintText: 'اكتب ردك هنا...',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                              ),
-                              maxLines: null,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          CircleAvatar(
-                            backgroundColor: _isSending ? Colors.grey : Colors.blue.shade700,
-                            child: IconButton(
-                              icon: _isSending
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(Icons.send, color: Colors.white),
-                              onPressed: _isSending ? null : _sendReply,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

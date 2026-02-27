@@ -429,22 +429,36 @@ class _NotificationsScreenState extends State<NotificationsScreen>
   }
 
   // ✅ فتح تفاصيل الإشعار - مع دعم التذاكر
-  void _openNotificationDetails(AppNotification notification) {
-    // إذا كان الإشعار غير مقروء، حدده كمقروء
-    if (!notification.isRead) {
-      _markAsRead(notification.id);
-    }
-    
-    // ✅ إذا كان الإشعار من نوع ticket_reply، افتح التذكرة مباشرة
-    if (notification.type == NotificationType.ticketReply) {
-      final ticketId = notification.data?['ticket_id'];
-      if (ticketId != null) {
-        int? id = ticketId is int ? ticketId : int.tryParse(ticketId.toString());
-        if (id != null && id > 0) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => TicketDetailsScreen(
+ // ✅ فتح تفاصيل الإشعار - مع دعم التذاكر كـ BottomSheet
+void _openNotificationDetails(AppNotification notification) {
+  // إذا كان الإشعار غير مقروء، حدده كمقروء
+  if (!notification.isRead) {
+    _markAsRead(notification.id);
+  }
+  
+  // ✅ إذا كان الإشعار من نوع ticket_reply، افتح التذكرة كـ BottomSheet
+  if (notification.type == NotificationType.ticketReply) {
+    final ticketId = notification.data?['ticket_id'];
+    if (ticketId != null) {
+      int? id = ticketId is int ? ticketId : int.tryParse(ticketId.toString());
+      if (id != null && id > 0) {
+        debugPrint('📱 فتح تذكرة $id من الإشعار كـ BottomSheet');
+        
+        // ✅ فتح التذكرة كـ BottomSheet مثل شاشة my_tickets_screen
+        showModalBottomSheet(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (context) => DraggableScrollableSheet(
+            initialChildSize: 0.9,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (_, controller) => Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: TicketDetailsScreen(
                 ticketId: id,
                 token: widget.token,
                 onTicketUpdated: () {
@@ -453,37 +467,45 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                 },
               ),
             ),
-          ).then((_) {
-            _loadNotifications();
-            widget.onChanged();
-          });
-          return;
-        }
-      }
-    }
-    
-    // باقي أنواع الإشعارات تفتح في شاشة التفاصيل العادية
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => DraggableScrollableSheet(
-        initialChildSize: 0.9,
-        minChildSize: 0.5,
-        maxChildSize: 0.95,
-        builder: (_, controller) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
-          child: NotificationDetailsScreen(notification: notification),
-        ),
-      ),
-    ).then((_) {
-      widget.onChanged();
-      _loadNotifications();
-    });
+        ).then((_) {
+          debugPrint('📱 تم إغلاق BottomSheet التذكرة');
+          _loadNotifications();
+          widget.onChanged();
+        });
+        return;
+      } else {
+        debugPrint('❌ ticketId غير صالح: $ticketId');
+      }
+    } else {
+      debugPrint('❌ لا يوجد ticketId في بيانات الإشعار');
+    }
   }
+  
+  // باقي أنواع الإشعارات تفتح في شاشة التفاصيل العادية
+  debugPrint('📱 فتح إشعار عادي كـ BottomSheet');
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (context) => DraggableScrollableSheet(
+      initialChildSize: 0.9,
+      minChildSize: 0.5,
+      maxChildSize: 0.95,
+      builder: (_, controller) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: NotificationDetailsScreen(notification: notification),
+      ),
+    ),
+  ).then((_) {
+    debugPrint('📱 تم إغلاق BottomSheet الإشعار العادي');
+    widget.onChanged();
+    _loadNotifications();
+  });
+}
 
   String _getTabName() {
     switch (_tabController.index) {
@@ -869,60 +891,83 @@ class _NotificationsScreenState extends State<NotificationsScreen>
                               const Spacer(),
                               
                               // ✅ إضافة رابط "عرض التذكرة" للإشعارات من نوع ticket_reply
-                              if (isTicketReply && notification.data?['ticket_id'] != null)
-                                GestureDetector(
-                                  onTap: () {
-                                    final ticketId = notification.data?['ticket_id'];
-                                    if (ticketId != null) {
-                                      int? id = ticketId is int ? ticketId : int.tryParse(ticketId.toString());
-                                      if (id != null && id > 0) {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (context) => TicketDetailsScreen(
-                                              ticketId: id,
-                                              token: widget.token,
-                                              onTicketUpdated: () {
-                                                _loadNotifications();
-                                                widget.onChanged();
-                                              },
-                                            ),
-                                          ),
-                                        );
-                                      }
-                                    }
-                                  },
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: Colors.blue.shade50,
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.blue.shade200),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(
-                                          Icons.link,
-                                          size: 12,
-                                          color: Colors.blue,
-                                        ),
-                                        const SizedBox(width: 4),
-                                        Text(
-                                          'عرض التذكرة',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.blue.shade700,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
+                           // في _buildNotificationCard - تحديث قسم الرابط
+
+// ✅ إضافة رابط "عرض التذكرة" للإشعارات من نوع ticket_reply
+if (isTicketReply && notification.data?['ticket_id'] != null)
+  GestureDetector(
+    onTap: () {
+      final ticketId = notification.data?['ticket_id'];
+      if (ticketId != null) {
+        int? id = ticketId is int ? ticketId : int.tryParse(ticketId.toString());
+        if (id != null && id > 0) {
+          debugPrint('📱 فتح تذكرة $id من رابط الإشعار');
+          
+          // ✅ فتح التذكرة كـ BottomSheet
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (context) => DraggableScrollableSheet(
+              initialChildSize: 0.9,
+              minChildSize: 0.5,
+              maxChildSize: 0.95,
+              builder: (_, controller) => Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: TicketDetailsScreen(
+                  ticketId: id,
+                  token: widget.token,
+                  onTicketUpdated: () {
+                    _loadNotifications();
+                    widget.onChanged();
+                  },
+                ),
+              ),
+            ),
+          ).then((_) {
+            debugPrint('📱 تم إغلاق BottomSheet التذكرة من الرابط');
+            _loadNotifications();
+            widget.onChanged();
+          });
+        }
+      }
+    },
+    child: Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 4,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.blue.shade50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.blue.shade200),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.link,
+            size: 12,
+            color: Colors.blue,
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'عرض التذكرة',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.blue.shade700,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    ),
+  ),
+
+                              
                               
                               // مؤشر غير مقروء
                               if (!notification.isRead && !_isSelectionMode && !isTicketReply)

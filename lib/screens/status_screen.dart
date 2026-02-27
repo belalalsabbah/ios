@@ -1,7 +1,9 @@
+// lib/screens/status_screen.dart
+
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart'; // لازم تضيف هاد import
+import 'package:url_launcher/url_launcher.dart';
 import '../services/api_service.dart';
 import '../services/token_store.dart';
 import '../services/push_service.dart';
@@ -71,47 +73,67 @@ class _StatusScreenState extends State<StatusScreen>
   late Animation<double> _pulseAnimation;
   late Animation<Offset> _slideAnimation;
 
-  // Expansion panels state - all collapsed by default
+  // Expansion panels state
   bool _isSubscriptionExpanded = false;
   bool _isQuickFactsExpanded = false;
   bool _isMotivationalExpanded = false;
 
-  @override
-  void initState() {
-    super.initState();
+@override
+void initState() {
+  super.initState();
 
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 2),
-    )..repeat(reverse: true);
+  // ✅ Pulse animation: 20 ثانية توقف + 1 ثانية وميض
+  _pulseController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1000), // وميض لمدة ثانية واحدة
+  );
+  
+  // بدء الدورة الأولى بعد 20 ثانية
+  _startPulseCycle();
 
-    _slideController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 800),
-    )..forward();
+  _slideController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 800),
+  )..forward();
 
-    _progressController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    )..forward();
+  _progressController = AnimationController(
+    vsync: this,
+    duration: const Duration(seconds: 1),
+  )..forward();
 
-    _pulseAnimation = CurvedAnimation(
-      parent: _pulseController,
-      curve: Curves.easeInOut,
-    );
+  _pulseAnimation = CurvedAnimation(
+    parent: _pulseController,
+    curve: Curves.easeInOut,
+  );
 
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.5),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _slideController,
-      curve: Curves.easeOutQuad,
-    ));
+  _slideAnimation = Tween<Offset>(
+    begin: const Offset(0, 0.5),
+    end: Offset.zero,
+  ).animate(CurvedAnimation(
+    parent: _slideController,
+    curve: Curves.easeOutQuad,
+  ));
 
-    load();
-    loadNotificationsCount();
-    PushService.init(widget.token);
-  }
+  load();
+  loadNotificationsCount();
+  PushService.init(widget.token);
+}
+
+// ✅ دالة لإدارة دورات الوميض
+void _startPulseCycle() {
+  Future.delayed(const Duration(seconds: 20), () {
+    if (mounted) {
+      // وميض لمدة ثانية (تكبير)
+      _pulseController.forward().then((_) {
+        // ثم الرجوع للوضع الطبيعي (تصغير)
+        _pulseController.reverse().then((_) {
+          // بعد انتهاء الوميض، نبدأ الدورة من جديد
+          _startPulseCycle();
+        });
+      });
+    }
+  });
+}
 
   @override
   void dispose() {
@@ -244,6 +266,310 @@ class _StatusScreenState extends State<StatusScreen>
     );
   }
 
+  // ✅ تحسين 1: إضافة بطاقة آخر نشاط
+  Widget _buildRecentActivityCard() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 15,
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(Icons.history, color: Colors.blue.shade700, size: 20),
+              ),
+              const SizedBox(width: 12),
+              const Text(
+                'آخر نشاط',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildActivityItem(
+            icon: Icons.support_agent,
+            label: 'آخر تذكرة',
+            value: 'لا توجد',
+            color: Colors.orange,
+          ),
+          const SizedBox(height: 8),
+          _buildActivityItem(
+            icon: Icons.calendar_today,
+            label: 'آخر إضافة أيام',
+            value: 'لم يتم',
+            color: Colors.green,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActivityItem({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: color, size: 16),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 13, color: Colors.grey),
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      ],
+    );
+  }
+
+  // ✅ تحسين 2: إضافة مؤشر استهلاك البيانات
+  Widget _buildDataUsageCard() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.purple.shade50, Colors.white],
+          begin: Alignment.topRight,
+          end: Alignment.bottomLeft,
+        ),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.purple.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.data_usage, color: Colors.purple.shade700),
+              const SizedBox(width: 8),
+              const Text(
+                'استخدام البيانات',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _buildDataRow('تحميل', 0.7, Colors.blue),
+          const SizedBox(height: 12),
+          _buildDataRow('رفع', 0.3, Colors.green),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDataRow(String label, double progress, Color color) {
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 13)),
+            Text('${(progress * 100).round()}%', 
+                 style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: color)),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 8,
+            backgroundColor: Colors.grey.shade200,
+            valueColor: AlwaysStoppedAnimation<Color>(color),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ✅ تحسين 3: إضافة إعلانات أو تنبيهات مهمة
+  Widget _buildAnnouncementBanner() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.amber.shade400, Colors.orange.shade400],
+        ),
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.orange.withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.campaign, color: Colors.white, size: 24),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '📢 تحديث جديد',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'تم إضافة قنوات جديدة في IPTV',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white, size: 18),
+            onPressed: () {
+              // إخفاء الإعلان
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ تحسين 4: إضافة نصائح ذكية حسب حالة الاشتراك
+  Widget _buildSmartTip(int daysLeft) {
+    String tip;
+    IconData icon;
+    Color color;
+    
+    if (daysLeft <= 0) {
+      tip = '⚠️ اشتراكك منتهي، يرجى التجديد فوراً';
+      icon = Icons.error;
+      color = Colors.red;
+    } else if (daysLeft <= 3) {
+      tip = '⏰ باقي 3 أيام على انتهاء الاشتراك، جدد الآن';
+      icon = Icons.warning;
+      color = Colors.orange;
+    } else if (daysLeft <= 7) {
+      tip = '💡 يمكنك تجديد اشتراكك الآن لتجنب الانقطاع';
+      icon = Icons.lightbulb;
+      color = Colors.amber;
+    } else {
+      tip = '🎉 استمتع بخدمات 2Net';
+      icon = Icons.celebration;
+      color = Colors.green;
+    }
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: color, size: 24),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              tip,
+              style: TextStyle(color: color, fontWeight: FontWeight.w500),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ✅ تحسين 5: إضافة تقويم بسيط للاشتراك
+  Widget _buildSubscriptionCalendar(DateTime expiryDate) {
+    final now = DateTime.now();
+    final totalDays = expiryDate.difference(now).inDays;
+    final months = (totalDays / 30).floor();
+    final days = totalDays % 30;
+    
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _buildDateBox('أشهر', months.toString(), Colors.blue),
+          Container(
+            height: 30,
+            width: 1,
+            color: Colors.grey.shade300,
+          ),
+          _buildDateBox('أيام', days.toString(), Colors.orange),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDateBox(String label, String value, Color color) {
+    return Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -253,6 +579,13 @@ class _StatusScreenState extends State<StatusScreen>
     final int totalDays = data?["total_days"] ?? 0;
     final int daysLeft = data?["days_left"] ?? 0;
     final String userName = data?["name"] ?? 'مستخدم';
+    DateTime? expiryDateTime;
+    
+    if (expireDate != null) {
+      try {
+        expiryDateTime = DateTime.parse(expireDate);
+      } catch (_) {}
+    }
     
     final double progress = totalDays > 0 ? (daysLeft / totalDays).clamp(0.0, 1.0) : 0.0;
     final statusColor = statusColorByDays(daysLeft);
@@ -372,7 +705,33 @@ class _StatusScreenState extends State<StatusScreen>
                                   
                                   const SizedBox(height: 20),
                                   
-                                  _buildActionButtons(statusColor), // ✅ هنا تم تعديله
+                                  // ✅ إضافة النصيحة الذكية
+                                  _buildSmartTip(daysLeft),
+                                  
+                                  const SizedBox(height: 10),
+                                  
+                                  // ✅ إضافة بطاقة آخر نشاط
+                                  _buildRecentActivityCard(),
+                                  
+                                  const SizedBox(height: 10),
+                                  
+                                  // ✅ إضافة إعلان
+                                  _buildAnnouncementBanner(),
+                                  
+                                  const SizedBox(height: 10),
+                                  
+                                  // ✅ إضافة مؤشر البيانات
+                                  _buildDataUsageCard(),
+                                  
+                                  const SizedBox(height: 10),
+                                  
+                                  // ✅ إضافة التقويم إذا كان التاريخ موجود
+                                  if (expiryDateTime != null)
+                                    _buildSubscriptionCalendar(expiryDateTime),
+                                  
+                                  const SizedBox(height: 10),
+                                  
+                                  _buildActionButtons(statusColor),
                                   
                                   const SizedBox(height: 20),
                                   
@@ -570,7 +929,6 @@ class _StatusScreenState extends State<StatusScreen>
     );
   }
 
-  // ... باقي الدوال كما هي (لم يتغير شيء) ...
   Widget _buildExpandableSection({required String title, required IconData icon, required List<Color> gradientColors, required bool isExpanded, required Function(bool) onExpansionChanged, required Widget child}) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 20),
