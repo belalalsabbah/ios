@@ -3,9 +3,10 @@ import 'package:restart_app/restart_app.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../screens/splash_screen.dart';
-import 'token_store.dart';
 
+import 'token_store.dart';
+import '../main.dart'; // rootNavigatorKey
+import '../screens/splash_screen.dart';  // ✅ هذا صحيح، ما فيه مشكلة
 class ApiService {
   static String baseUrl = "http://50.50.50.1/api"; // سيتم تحديثها تلقائيًا
 
@@ -33,18 +34,25 @@ class ApiService {
   // =========================
   // دوال مساعدة للـ fallback
   // =========================
-  static Future<http.Response> _get(String path,
+  static Future<Map<String, dynamic>> _get(String path,
       {Map<String, String>? headers}) async {
     try {
-      final res = await http
+      final response = await http
           .get(Uri.parse("$baseUrl/$path"), headers: headers)
           .timeout(const Duration(seconds: 5));
-      return res;
+
+      return await _handleResponse(response);
     } catch (_) {
       await detectBaseUrl();
-      return await http
-          .get(Uri.parse("$baseUrl/$path"), headers: headers)
-          .timeout(const Duration(seconds: 5));
+      try {
+        final response = await http
+            .get(Uri.parse("$baseUrl/$path"), headers: headers)
+            .timeout(const Duration(seconds: 5));
+
+        return await _handleResponse(response);
+      } catch (e) {
+        return {'ok': false, 'error': 'connection_failed', 'message': e.toString()};
+      }
     }
   }
 
@@ -70,31 +78,24 @@ class ApiService {
     final headers = <String, String>{"Accept": "application/json"};
     if (token != null && token.isNotEmpty) headers["X-Auth-Token"] = token;
 
-    final res = await _get("app/bootstrap", headers: headers);
-    if (res.statusCode != 200)
-      throw Exception("BOOTSTRAP HTTP ${res.statusCode}: ${res.body}");
-    return json.decode(res.body);
+    final result = await _get("app/bootstrap", headers: headers);
+    return result;
   }
 
   // =================================================
   // STATUS (بدون تسجيل دخول – داخل الشبكة فقط)
   // =================================================
   static Future<Map<String, dynamic>> getStatusAnonymous() async {
-    final res = await _get("status", headers: {"Accept": "application/json"});
-    if (res.statusCode != 200)
-      throw Exception("STATUS HTTP ${res.statusCode}: ${res.body}");
-    return json.decode(res.body);
+    final result = await _get("status", headers: {"Accept": "application/json"});
+    return result;
   }
 
   // =================================================
   // STATUS (بعد تسجيل الدخول)
   // =================================================
   static Future<Map<String, dynamic>> getStatus(String token) async {
-    final res = await _get("status.php",
+    return await _get("status.php",
         headers: {"X-Auth-Token": token, "Accept": "application/json"});
-    if (res.statusCode != 200)
-      throw Exception("STATUS AUTH HTTP ${res.statusCode}: ${res.body}");
-    return json.decode(res.body);
   }
 
   // =================================================
@@ -104,25 +105,41 @@ class ApiService {
     required String username,
     required String password,
   }) async {
-    final res = await _post(
-      "login",
-      headers: {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-      },
-      body: json.encode({
-        "username": username,
-        "password": password,
-      }),
-    );
-
     try {
-      return json.decode(res.body) as Map<String, dynamic>;
+      final response = await _post(
+        "login",
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
+        body: json.encode({
+          "username": username,
+          "password": password,
+        }),
+      );
+
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
+      }
+
+      try {
+        return json.decode(response.body) as Map<String, dynamic>;
+      } catch (e) {
+        return {
+          "ok": false,
+          "error": "invalid_response",
+          "message": response.body,
+        };
+      }
     } catch (e) {
       return {
         "ok": false,
-        "error": "invalid_response",
-        "message": res.body,
+        "error": "connection_failed",
+        "message": e.toString(),
       };
     }
   }
@@ -130,104 +147,239 @@ class ApiService {
   // =================================================
   // CREATE ACCOUNT
   // =================================================
-  static Future<Map<String, dynamic>> createAccount(
-      {required String username, required String password}) async {
-    final res = await _post("create-account",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: json.encode({"username": username, "password": password}));
-    if (res.statusCode != 200)
-      throw Exception("CREATE ACCOUNT HTTP ${res.statusCode}: ${res.body}");
-    return json.decode(res.body);
+  static Future<Map<String, dynamic>> createAccount({
+    required String username,
+    required String password,
+  }) async {
+    try {
+      final response = await _post("create-account",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: json.encode({"username": username, "password": password}));
+
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
+      }
+
+      try {
+        return json.decode(response.body);
+      } catch (e) {
+        return {
+          'ok': false,
+          'error': 'invalid_response',
+          'message': response.body,
+        };
+      }
+    } catch (e) {
+      return {
+        'ok': false,
+        'error': 'connection_failed',
+        'message': e.toString(),
+      };
+    }
   }
 
   // =================================================
   // GET NOTIFICATIONS
   // =================================================
   static Future<Map<String, dynamic>> getNotifications(String token) async {
-    final res = await _get("notifications.php",
+    return await _get("notifications.php",
         headers: {"X-Auth-Token": token, "Accept": "application/json"});
-    if (res.statusCode != 200)
-      throw Exception("NOTIFICATIONS HTTP ${res.statusCode}: ${res.body}");
-    return json.decode(res.body);
   }
 
   // =================================================
   // CREATE TICKET
   // =================================================
-  static Future<Map<String, dynamic>> createTicket(
-      {required String token,
-      required String type,
-      required String message}) async {
-    final res = await _post("tickets/create",
-        headers: {
-          "X-Auth-Token": token,
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: json.encode({"type": type, "message": message}));
-    if (res.statusCode != 200)
-      throw Exception("CREATE TICKET HTTP ${res.statusCode}: ${res.body}");
-    return json.decode(res.body);
-  }
+  static Future<Map<String, dynamic>> createTicket({
+    required String token,
+    required String type,
+    required String message,
+  }) async {
+    try {
+      final response = await _post("tickets/create",
+          headers: {
+            "X-Auth-Token": token,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: json.encode({"type": type, "message": message}));
 
-  // في api_service.dart، استبدل دالة saveFcmToken بهذا:
-
-static Future<void> saveFcmToken({
-  required String token,
-  required String fcmToken,
-}) async {
-  try {
-    // الطريقة 1: استخدام x-www-form-urlencoded
-    final url = Uri.parse('$baseUrl/register_fcm.php');
-    
-    // إنشاء طلب MultipartRequest
-    var request = http.MultipartRequest('POST', url);
-    request.headers['X-Auth-Token'] = token;
-    request.fields['fcm_token'] = fcmToken;
-    request.fields['device'] = 'android';
-    
-    print('📤 إرسال FCM token إلى: $url');
-    print('🔑 Token: $token');
-    print('📱 FCM: $fcmToken');
-    
-    var streamedResponse = await request.send();
-    var response = await http.Response.fromStream(streamedResponse);
-    
-    print('📥 استجابة: ${response.statusCode} - ${response.body}');
-    
-    if (response.statusCode != 200) {
-      // إذا فشل، جرب الطريقة الثانية (application/json)
-      print('⚠️ فشل MultipartRequest، جرب JSON...');
-      
-      final jsonResponse = await http.post(
-        url,
-        headers: {
-          'X-Auth-Token': token,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'fcm_token': fcmToken,
-          'device': 'android',
-        }),
-      );
-      
-      print('📥 JSON استجابة: ${jsonResponse.statusCode} - ${jsonResponse.body}');
-      
-      if (jsonResponse.statusCode != 200) {
-        throw Exception('فشل جميع محاولات إرسال FCM token');
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
       }
+
+      try {
+        return json.decode(response.body);
+      } catch (e) {
+        return {
+          'ok': false,
+          'error': 'invalid_response',
+          'message': response.body,
+        };
+      }
+    } catch (e) {
+      return {
+        'ok': false,
+        'error': 'connection_failed',
+        'message': e.toString(),
+      };
     }
-  } catch (e) {
-    print('❌ خطأ في saveFcmToken: $e');
-    throw Exception('فشل حفظ FCM token: $e');
   }
-}
 
   // =================================================
-  // LOGOUT - إعادة تشغيل التطبيق
+  // SAVE FCM TOKEN
+  // =================================================
+  static Future<bool> saveFcmToken({
+    required String token,
+    required String fcmToken,
+  }) async {
+    try {
+      final url = Uri.parse('$baseUrl/register_fcm.php');
+
+      // الطريقة الأولى: JSON
+      try {
+        final jsonResponse = await http.post(
+          url,
+          headers: {
+            'X-Auth-Token': token,
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'fcm_token': fcmToken,
+            'device': 'android',
+          }),
+        ).timeout(const Duration(seconds: 10));
+
+        debugPrint('📥 JSON استجابة: ${jsonResponse.statusCode}');
+
+        if (jsonResponse.statusCode == 200) {
+          debugPrint('✅ تم حفظ FCM token بنجاح (JSON)');
+          return true;
+        }
+      } catch (e) {
+        debugPrint('⚠️ فشل JSON: $e');
+      }
+
+      // الطريقة الثانية: Multipart
+      try {
+        var request = http.MultipartRequest('POST', url);
+        request.headers['X-Auth-Token'] = token;
+        request.fields['fcm_token'] = fcmToken;
+        request.fields['device'] = 'android';
+
+        debugPrint('📤 محاولة Multipart...');
+
+        var streamedResponse = await request.send();
+        var response = await http.Response.fromStream(streamedResponse);
+
+        debugPrint('📥 Multipart استجابة: ${response.statusCode}');
+
+        if (response.statusCode == 200) {
+          debugPrint('✅ تم حفظ FCM token بنجاح (Multipart)');
+          return true;
+        }
+      } catch (e) {
+        debugPrint('⚠️ فشل Multipart: $e');
+      }
+
+      debugPrint('❌ فشلت جميع محاولات حفظ FCM token');
+      return false;
+
+    } catch (e) {
+      debugPrint('❌ خطأ في saveFcmToken: $e');
+      return false;
+    }
+  }
+
+  // =================================================
+  // HANDLE RESPONSE
+  // =================================================
+  static Future<Map<String, dynamic>> _handleResponse(
+    http.Response response, {
+    bool throwOnError = false,
+  }) async {
+    // تحقق من حالة HTTP
+    if (response.statusCode == 401) {
+      debugPrint('🚨 Token expired or invalid (401)');
+
+      // مسح التوكن من التخزين المحلي
+      await TokenStore.clear();
+
+      // عرض رسالة للمستخدم وإعادة التوجيه
+      if (rootNavigatorKey.currentContext != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showTokenExpiredDialog(rootNavigatorKey.currentContext!);
+        });
+      }
+
+      if (throwOnError) {
+        throw Exception('token_expired');
+      } else {
+        return {'ok': false, 'error': 'token_expired'};
+      }
+    }
+
+    // باقي حالات HTTP
+    if (response.statusCode != 200) {
+      return {
+        'ok': false,
+        'error': 'http_${response.statusCode}',
+        'message': response.body,
+      };
+    }
+
+    // محاولة تحليل JSON
+    try {
+      return json.decode(response.body) as Map<String, dynamic>;
+    } catch (e) {
+      return {
+        'ok': false,
+        'error': 'invalid_response',
+        'message': response.body,
+      };
+    }
+  }
+
+  // =================================================
+  // SHOW TOKEN EXPIRED DIALOG
+  // =================================================
+  static void _showTokenExpiredDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('انتهت الجلسة'),
+        content: const Text(
+          'انتهت صلاحية الجلسة الحالية. يرجى تسجيل الدخول مرة أخرى للمتابعة.'
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              Navigator.of(context).pushNamedAndRemoveUntil(
+                '/login',
+                (route) => false,
+              );
+            },
+            child: const Text('تسجيل الدخول'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // =================================================
+  // LOGOUT
   // =================================================
   static Future<void> logout({
     required String token,
@@ -236,9 +388,9 @@ static Future<void> saveFcmToken({
     try {
       await _post("logout.php",
           headers: {"X-Auth-Token": token, "Accept": "application/json"});
-      print("✅ Logout request sent successfully");
+      debugPrint("✅ Logout request sent successfully");
     } catch (e) {
-      print("⚠️ Logout request failed: $e");
+      debugPrint("⚠️ Logout request failed: $e");
     }
 
     // مسح التوكن من TokenStore أولاً
@@ -248,7 +400,7 @@ static Future<void> saveFcmToken({
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
 
-    print("✅ All SharedPreferences cleared");
+    debugPrint("✅ All SharedPreferences cleared");
 
     // إظهار رسالة للمستخدم
     if (context.mounted) {
@@ -269,41 +421,119 @@ static Future<void> saveFcmToken({
   // =================================================
   // MARK ALL NOTIFICATIONS READ
   // =================================================
-  static Future<Map<String, dynamic>> markAllNotificationsRead(
-      String token) async {
-    final res = await _post("mark-all-notifications-read.php",
-        headers: {"X-Auth-Token": token, "Accept": "application/json"});
-    if (res.statusCode != 200)
-      throw Exception("MARK ALL READ HTTP ${res.statusCode}");
-    return json.decode(res.body);
+  static Future<Map<String, dynamic>> markAllNotificationsRead(String token) async {
+    try {
+      final response = await _post("mark-all-notifications-read.php",
+          headers: {"X-Auth-Token": token, "Accept": "application/json"});
+
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
+      }
+
+      try {
+        return json.decode(response.body);
+      } catch (e) {
+        return {
+          'ok': false,
+          'error': 'invalid_response',
+          'message': response.body,
+        };
+      }
+    } catch (e) {
+      return {
+        'ok': false,
+        'error': 'connection_failed',
+        'message': e.toString(),
+      };
+    }
   }
 
   // =================================================
   // MARK NOTIFICATION UNREAD
   // =================================================
-  static Future<void> markNotificationUnread(
-      {required String token, required int notificationId}) async {
-    final res = await _post("mark-notification-unread.php",
-        headers: {"X-Auth-Token": token, "Content-Type": "application/json"},
-        body: json.encode({"id": notificationId}));
-    if (res.statusCode != 200)
-      throw Exception("MARK UNREAD HTTP ${res.statusCode}");
+  static Future<Map<String, dynamic>> markNotificationUnread({
+    required String token,
+    required int notificationId,
+  }) async {
+    try {
+      final response = await _post("mark-notification-unread.php",
+          headers: {
+            "X-Auth-Token": token,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: json.encode({"id": notificationId}));
+
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
+      }
+
+      try {
+        return json.decode(response.body);
+      } catch (e) {
+        return {
+          'ok': false,
+          'error': 'invalid_response',
+          'message': response.body,
+        };
+      }
+    } catch (e) {
+      return {
+        'ok': false,
+        'error': 'connection_failed',
+        'message': e.toString(),
+      };
+    }
   }
 
   // =================================================
   // MARK NOTIFICATION READ
   // =================================================
-  static Future<void> markNotificationRead(
-      {required String token, required int notificationId}) async {
-    final res = await _post("mark-notification-read.php",
-        headers: {
-          "X-Auth-Token": token,
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: json.encode({"id": notificationId}));
-    if (res.statusCode != 200)
-      throw Exception("MARK READ HTTP ${res.statusCode}");
+  static Future<Map<String, dynamic>> markNotificationRead({
+    required String token,
+    required int notificationId,
+  }) async {
+    try {
+      final response = await _post("mark-notification-read.php",
+          headers: {
+            "X-Auth-Token": token,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: json.encode({"id": notificationId}));
+
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
+      }
+
+      try {
+        return json.decode(response.body);
+      } catch (e) {
+        return {
+          'ok': false,
+          'error': 'invalid_response',
+          'message': response.body,
+        };
+      }
+    } catch (e) {
+      return {
+        'ok': false,
+        'error': 'connection_failed',
+        'message': e.toString(),
+      };
+    }
   }
 
   // =================================================
@@ -311,12 +541,9 @@ static Future<void> saveFcmToken({
   // =================================================
   static Future<Map<String, dynamic>> getMyTickets(String token) async {
     try {
-      final res = await _get("my_tickets.php",
+      final result = await _get("my_tickets.php",
           headers: {"X-Auth-Token": token, "Accept": "application/json"});
-      final body = res.body.trim();
-      if (!body.startsWith("{"))
-        return {"ok": false, "error": "invalid_response", "raw": body};
-      return jsonDecode(body);
+      return result;
     } catch (e) {
       return {"ok": false, "error": "exception", "message": e.toString()};
     }
@@ -325,37 +552,86 @@ static Future<void> saveFcmToken({
   // =================================================
   // DELETE NOTIFICATION
   // =================================================
-  static Future<Map<String, dynamic>> deleteNotification(
-      {required String token, required int notificationId}) async {
-    final res = await _post("delete-notification.php",
-        headers: {
-          "X-Auth-Token": token,
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        },
-        body: json.encode({"id": notificationId}));
-    if (res.statusCode != 200)
-      throw Exception("DELETE NOTIFICATION HTTP ${res.statusCode}");
-    return json.decode(res.body);
+  static Future<Map<String, dynamic>> deleteNotification({
+    required String token,
+    required int notificationId,
+  }) async {
+    try {
+      final response = await _post("delete-notification.php",
+          headers: {
+            "X-Auth-Token": token,
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: json.encode({"id": notificationId}));
+
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
+      }
+
+      try {
+        return json.decode(response.body);
+      } catch (e) {
+        return {
+          'ok': false,
+          'error': 'invalid_response',
+          'message': response.body,
+        };
+      }
+    } catch (e) {
+      return {
+        'ok': false,
+        'error': 'connection_failed',
+        'message': e.toString(),
+      };
+    }
   }
 
   // =================================================
   // ADD DAYS (RENEW)
   // =================================================
-  static Future<Map<String, dynamic>> addDays(
-      {required String token,
-      required String days,
-      String notes = ''}) async {
-    final res = await _post("add-days.php",
-        headers: {"X-Auth-Token": token, "Accept": "application/json"},
-        body: {"api": "1", "day_num": days, "notes": notes});
-    if (res.statusCode != 200)
-      throw Exception("ADD DAYS HTTP ${res.statusCode}: ${res.body}");
-    return json.decode(res.body);
+  static Future<Map<String, dynamic>> addDays({
+    required String token,
+    required String days,
+    String notes = '',
+  }) async {
+    try {
+      final response = await _post("add-days.php",
+          headers: {"X-Auth-Token": token, "Accept": "application/json"},
+          body: {"api": "1", "day_num": days, "notes": notes});
+
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
+      }
+
+      try {
+        return json.decode(response.body);
+      } catch (e) {
+        return {
+          'ok': false,
+          'error': 'invalid_response',
+          'message': response.body,
+        };
+      }
+    } catch (e) {
+      return {
+        'ok': false,
+        'error': 'connection_failed',
+        'message': e.toString(),
+      };
+    }
   }
 
   // =================================================
-  // REPLY TO TICKET - دالة جديدة
+  // REPLY TO TICKET
   // =================================================
   static Future<Map<String, dynamic>> replyToTicket({
     required String token,
@@ -363,7 +639,7 @@ static Future<void> saveFcmToken({
     required String reply,
   }) async {
     try {
-      final res = await _post(
+      final response = await _post(
         "reply-ticket",
         headers: {
           "X-Auth-Token": token,
@@ -376,13 +652,21 @@ static Future<void> saveFcmToken({
         }),
       );
 
+      if (response.statusCode != 200) {
+        return {
+          'ok': false,
+          'error': 'http_${response.statusCode}',
+          'message': response.body,
+        };
+      }
+
       try {
-        return json.decode(res.body) as Map<String, dynamic>;
+        return json.decode(response.body) as Map<String, dynamic>;
       } catch (e) {
         return {
           "ok": false,
           "error": "invalid_response",
-          "message": res.body,
+          "message": response.body,
         };
       }
     } catch (e) {
