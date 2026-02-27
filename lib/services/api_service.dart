@@ -1,4 +1,7 @@
+// lib/services/api_service.dart - النسخة الكاملة مع دعم الأجهزة المتعددة
+
 import 'dart:convert';
+import 'dart:math';
 import 'package:restart_app/restart_app.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
@@ -6,9 +9,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'token_store.dart';
 import '../main.dart'; // rootNavigatorKey
-import '../screens/splash_screen.dart';  // ✅ هذا صحيح، ما فيه مشكلة
+import '../screens/splash_screen.dart';
+
 class ApiService {
   static String baseUrl = "http://50.50.50.1/api"; // سيتم تحديثها تلقائيًا
+  
+  // مفتاح لتخزين device_id
+  static const String _deviceIdKey = 'device_id';
 
   // =========================
   // كشف الشبكة لتحديد baseUrl
@@ -72,6 +79,40 @@ class ApiService {
   }
 
   // =================================================
+  // دوال مساعدة للجهاز (Device ID)
+  // =================================================
+  
+  /// إنشاء أو جلب device_id فريد للجهاز
+  static Future<String> getDeviceId() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // محاولة جلب device_id المخزن
+    String? deviceId = prefs.getString(_deviceIdKey);
+    
+    // إذا لم يكن موجوداً، ننشئ واحد جديد
+    if (deviceId == null || deviceId.isEmpty) {
+      // إنشاء معرف فريد (مزيج من التاريخ والرقم العشوائي)
+      final random = Random.secure();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final randomNum = random.nextInt(1000000);
+      deviceId = 'dev_${timestamp}_$randomNum';
+      
+      // حفظه في SharedPreferences
+      await prefs.setString(_deviceIdKey, deviceId);
+      debugPrint('📱 تم إنشاء device_id جديد: $deviceId');
+    }
+    
+    return deviceId;
+  }
+
+  /// تحديث device_id (إذا احتجنا)
+  static Future<void> updateDeviceId(String newDeviceId) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_deviceIdKey, newDeviceId);
+    debugPrint('📱 تم تحديث device_id: $newDeviceId');
+  }
+
+  // =================================================
   // BOOTSTRAP (SplashScreen)
   // =================================================
   static Future<Map<String, dynamic>> bootstrap({String? token}) async {
@@ -99,23 +140,29 @@ class ApiService {
   }
 
   // =================================================
-  // LOGIN
+  // LOGIN - مع device_id
   // =================================================
   static Future<Map<String, dynamic>> login({
     required String username,
     required String password,
   }) async {
     try {
+      // ✅ جلب device_id الخاص بالجهاز
+      final deviceId = await getDeviceId();
+      
+      final Map<String, dynamic> requestBody = {
+        "username": username,
+        "password": password,
+        "device_id": deviceId, // إضافة device_id إلى الطلب
+      };
+      
       final response = await _post(
         "login",
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
         },
-        body: json.encode({
-          "username": username,
-          "password": password,
-        }),
+        body: json.encode(requestBody),
       );
 
       if (response.statusCode != 200) {
@@ -127,7 +174,14 @@ class ApiService {
       }
 
       try {
-        return json.decode(response.body) as Map<String, dynamic>;
+        final result = json.decode(response.body) as Map<String, dynamic>;
+        
+        // ✅ حفظ device_id إذا رجعه السيرفر (قد يكون محدثاً)
+        if (result.containsKey('device_id')) {
+          await updateDeviceId(result['device_id']);
+        }
+        
+        return result;
       } catch (e) {
         return {
           "ok": false,
@@ -237,7 +291,7 @@ class ApiService {
   }
 
   // =================================================
-  // SAVE FCM TOKEN
+  // SAVE FCM TOKEN - مع device_id
   // =================================================
   static Future<bool> saveFcmToken({
     required String token,
@@ -245,24 +299,38 @@ class ApiService {
   }) async {
     try {
       final url = Uri.parse('$baseUrl/register_fcm.php');
+      
+      // ✅ جلب device_id الخاص بالجهاز
+      final deviceId = await getDeviceId();
 
-      // الطريقة الأولى: JSON
+      // الطريقة الأولى: JSON مع device_id
       try {
+        final Map<String, dynamic> body = {
+          'fcm_token': fcmToken,
+          'device': 'android',
+          'device_id': deviceId,
+        };
+        
         final jsonResponse = await http.post(
           url,
           headers: {
             'X-Auth-Token': token,
             'Content-Type': 'application/json',
           },
-          body: jsonEncode({
-            'fcm_token': fcmToken,
-            'device': 'android',
-          }),
+          body: jsonEncode(body),
         ).timeout(const Duration(seconds: 10));
 
         debugPrint('📥 JSON استجابة: ${jsonResponse.statusCode}');
 
         if (jsonResponse.statusCode == 200) {
+          // محاولة تحليل الاستجابة للحصول على device_id محدث
+          try {
+            final responseBody = json.decode(jsonResponse.body);
+            if (responseBody['device_id'] != null) {
+              await updateDeviceId(responseBody['device_id']);
+            }
+          } catch (_) {}
+          
           debugPrint('✅ تم حفظ FCM token بنجاح (JSON)');
           return true;
         }
@@ -270,14 +338,15 @@ class ApiService {
         debugPrint('⚠️ فشل JSON: $e');
       }
 
-      // الطريقة الثانية: Multipart
+      // الطريقة الثانية: Multipart مع device_id
       try {
         var request = http.MultipartRequest('POST', url);
         request.headers['X-Auth-Token'] = token;
         request.fields['fcm_token'] = fcmToken;
         request.fields['device'] = 'android';
+        request.fields['device_id'] = deviceId;
 
-        debugPrint('📤 محاولة Multipart...');
+        debugPrint('📤 محاولة Multipart مع device_id: $deviceId');
 
         var streamedResponse = await request.send();
         var response = await http.Response.fromStream(streamedResponse);
@@ -302,7 +371,7 @@ class ApiService {
   }
 
   // =================================================
-  // HANDLE RESPONSE
+  // HANDLE RESPONSE - النسخة المصححة
   // =================================================
   static Future<Map<String, dynamic>> _handleResponse(
     http.Response response, {
@@ -310,10 +379,31 @@ class ApiService {
   }) async {
     // تحقق من حالة HTTP
     if (response.statusCode == 401) {
-      debugPrint('🚨 Token expired or invalid (401)');
-
-      // مسح التوكن من التخزين المحلي
-      await TokenStore.clear();
+      debugPrint('🚨 Received 401 - checking session status');
+      
+      // ✅ التحقق من سبب 401
+      final responseBody = response.body;
+      
+      // محاولة تحليل الاستجابة
+      try {
+        final jsonResponse = json.decode(responseBody);
+        
+        // إذا كان الخطأ بسبب تعارض الجلسات
+        if (jsonResponse['error'] == 'session_conflict') {
+          debugPrint('⚠️ Session conflict detected');
+          
+          if (rootNavigatorKey.currentContext != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _showSessionConflictDialog(rootNavigatorKey.currentContext!);
+            });
+          }
+          
+          return {'ok': false, 'error': 'session_conflict'};
+        }
+      } catch (e) {
+        // إذا كانت الاستجابة ليست JSON، نعتبرها token expired
+        debugPrint('❌ Error parsing 401 response: $e');
+      }
 
       // عرض رسالة للمستخدم وإعادة التوجيه
       if (rootNavigatorKey.currentContext != null) {
@@ -347,6 +437,82 @@ class ApiService {
         'error': 'invalid_response',
         'message': response.body,
       };
+    }
+  }
+
+  // =================================================
+  // SHOW SESSION CONFLICT DIALOG - نافذة جديدة
+  // =================================================
+  static void _showSessionConflictDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('تعارض الجلسات'),
+        content: const Text(
+          'تم تسجيل الدخول من جهاز آخر. هل تريد:\n\n'
+          '• البقاء في هذا الجهاز (سيتم تسجيل خروج الجهاز الآخر)\n'
+          '• تسجيل الخروج من هذا الجهاز'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              // البقاء في هذا الجهاز - إرسال طلب لإبقاء هذه الجلسة
+              _keepCurrentSession();
+            },
+            child: const Text('البقاء هنا'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.of(dialogContext).pop();
+              // تسجيل الخروج من هذا الجهاز فقط
+              await TokenStore.clear();
+              if (context.mounted) {
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  '/login',
+                  (route) => false,
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            child: const Text('تسجيل خروج'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // =================================================
+  // KEEP CURRENT SESSION - إبقاء الجلسة الحالية
+  // =================================================
+  static Future<void> _keepCurrentSession() async {
+    final token = await TokenStore.load();
+    if (token == null) return;
+    
+    try {
+      // إرسال طلب لإبقاء هذه الجلسة وحذف الأخرى
+      final response = await _post("keep-session.php",
+          headers: {"X-Auth-Token": token});
+      
+      if (response.statusCode == 200) {
+        debugPrint('✅ تم إبقاء الجلسة الحالية');
+        
+        // إظهار رسالة نجاح للمستخدم
+        if (rootNavigatorKey.currentContext != null) {
+          ScaffoldMessenger.of(rootNavigatorKey.currentContext!).showSnackBar(
+            const SnackBar(
+              content: Text('✅ تم إبقاء هذه الجلسة وتسجيل خروج الأجهزة الأخرى'),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ فشل في إبقاء الجلسة: $e');
     }
   }
 
@@ -676,5 +842,31 @@ class ApiService {
         "message": e.toString(),
       };
     }
+  }
+
+  // =================================================
+  // CHECK SESSIONS - دالة للتحقق من الجلسات
+  // =================================================
+  static Future<Map<String, dynamic>> checkSessions(String token) async {
+    try {
+      return await _get("check_sessions.php",
+          headers: {"X-Auth-Token": token, "Accept": "application/json"});
+    } catch (e) {
+      return {'ok': false, 'error': 'connection_failed'};
+    }
+  }
+
+  // =================================================
+  // GET DEVICE INFO - جلب معلومات الجهاز الحالي
+  // =================================================
+  static Future<Map<String, dynamic>> getDeviceInfo() async {
+    final deviceId = await getDeviceId();
+    final token = await TokenStore.load();
+    
+    return {
+      'device_id': deviceId,
+      'has_token': token != null,
+      'token_exists': token != null,
+    };
   }
 }
