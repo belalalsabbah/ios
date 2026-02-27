@@ -26,6 +26,8 @@ class SupportScreen extends StatefulWidget {
 
 class _SupportScreenState extends State<SupportScreen> {
   bool _isLoading = false;
+  // ✅ إضافة مفتاح للتحكم في MyTicketsScreen
+  final GlobalKey<MyTicketsScreenState> _ticketsKey = GlobalKey();
 
   @override
   void initState() {
@@ -36,6 +38,8 @@ class _SupportScreenState extends State<SupportScreen> {
     if (widget.onRefreshUnread != null) {
       await widget.onRefreshUnread!();
     }
+    // ✅ تحديث قائمة التذاكر
+    _ticketsKey.currentState?.refreshTickets();
   }
 
   void _openCreateTicketDialog(TicketType type) {
@@ -55,14 +59,20 @@ class _SupportScreenState extends State<SupportScreen> {
           child: CreateTicketScreen(
             token: widget.token,
             type: type,
-            onTicketCreated: _refreshData,
+            onTicketCreated: () {
+              // ✅ تحديث قائمة التذاكر بعد إضافة تذكرة جديدة
+              _ticketsKey.currentState?.refreshTickets();
+              if (widget.onRefreshUnread != null) {
+                widget.onRefreshUnread!();
+              }
+            },
           ),
         ),
       ),
     );
   }
 
-  // ✅ أضف هذه الدالة الجديدة هنا
+  // ✅ دالة فتح شاشة إضافة أيام
   void _openAddDaysScreen() {
     Navigator.push(
       context,
@@ -71,7 +81,10 @@ class _SupportScreenState extends State<SupportScreen> {
           token: widget.token,
         ),
       ),
-    );
+    ).then((_) {
+      // ✅ تحديث البيانات بعد العودة من إضافة الأيام
+      _refreshData();
+    });
   }
 
 // whatsapp code - نسخة محسنة
@@ -111,7 +124,7 @@ void _openWhatsApp() async {
     // ✅ تجربة كل الروابط بالترتيب
     for (var item in urls) {
       if (await canLaunchUrl(item['url'])) {
-        print('📱 محاولة فتح: ${item['name']}');
+        debugPrint('📱 محاولة فتح: ${item['name']}');
         await launchUrl(item['url'], mode: item['mode']);
         opened = true;
         break;
@@ -135,7 +148,7 @@ void _openWhatsApp() async {
     }
     
   } catch (e) {
-    print("❌ خطأ في فتح واتساب: $e");
+    debugPrint("❌ خطأ في فتح واتساب: $e");
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -257,9 +270,10 @@ void _showInstallDialog() {
           color: backgroundColor,
           child: Column(
             children: [
-              // شاشة التذاكر مدمجة هنا
+              // شاشة التذاكر مدمجة هنا مع المفتاح
               Expanded(
                 child: MyTicketsScreen(
+                  key: _ticketsKey,  // ✅ إضافة المفتاح للتحكم
                   token: widget.token,
                   onRefreshUnread: widget.onRefreshUnread,
                 ),
@@ -305,7 +319,7 @@ void _showInstallDialog() {
                 icon: Icons.calendar_today,
                 label: 'إضافة أيام',
                 color: Colors.green,
-                onTap: _openAddDaysScreen,  // ✅ الآن الدالة معرفة
+                onTap: _openAddDaysScreen,
               ),
             ),
             const SizedBox(width: 8),

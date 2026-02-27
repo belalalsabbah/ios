@@ -34,7 +34,11 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProv
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
-    _loadTickets();
+    
+    // ✅ تحميل التذاكر بعد بناء الواجهة
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadTickets();
+    });
     
     // إضافة مستمع لتغيير التبويب
     _tabController.addListener(_handleTabChange);
@@ -55,11 +59,14 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProv
     }
   }
 
+  // ✅ دالة تحميل التذاكر (معدلة)
   Future<void> _loadTickets() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
+    // منع التحميل المتكرر
+    if (_isLoading && _tickets.isEmpty) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
 
     try {
       final response = await ApiService.getMyTickets(widget.token);
@@ -72,6 +79,11 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProv
           _tickets = items.map((json) => Ticket.fromJson(json)).toList();
           _isLoading = false;
         });
+        
+        // ✅ تحديث العداد بعد تحميل التذاكر
+        if (widget.onRefreshUnread != null) {
+          widget.onRefreshUnread!();
+        }
       } else {
         setState(() {
           _error = response['error'] ?? 'فشل تحميل التذاكر';
@@ -85,6 +97,11 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProv
         _isLoading = false;
       });
     }
+  }
+
+  // ✅ دالة إعادة التحميل (للاستخدام من الخارج)
+  Future<void> refreshTickets() async {
+    await _loadTickets();
   }
 
   // ✅ دالة تصفية التذاكر حسب التبويب المحدد
@@ -152,7 +169,6 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProv
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final backgroundColor = isDark ? Colors.grey[900] : Colors.grey[50];
     final cardColor = isDark ? Colors.grey[800]! : Colors.white;
 
     return Column(
@@ -176,7 +192,7 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProv
         // شريط البحث
         _buildSearchBar(),
         
-        // ✅ عرض عدد التذاكر في التبويب الحالي (اختياري)
+        // ✅ عرض عدد التذاكر في التبويب الحالي
         if (_filteredTickets.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -193,15 +209,26 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProv
             ),
           ),
         
-        // قائمة التذاكر
+        // قائمة التذاكر مع RefreshIndicator
         Expanded(
-          child: _isLoading
+          child: _isLoading && _tickets.isEmpty
               ? const Center(child: CircularProgressIndicator())
               : _error != null
                   ? _buildErrorWidget()
                   : _filteredTickets.isEmpty
                       ? _buildEmptyWidget()
-                      : _buildTicketsList(cardColor),
+                      : RefreshIndicator(
+                          onRefresh: _refreshData,
+                          color: Colors.blue.shade700,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: _filteredTickets.length,
+                            itemBuilder: (context, index) {
+                              final ticket = _filteredTickets[index];
+                              return _buildTicketCard(ticket, cardColor);
+                            },
+                          ),
+                        ),
         ),
       ],
     );
@@ -246,22 +273,7 @@ class _MyTicketsScreenState extends State<MyTicketsScreen> with SingleTickerProv
     );
   }
 
-  // قائمة التذاكر
-  Widget _buildTicketsList(Color cardColor) {
-    return RefreshIndicator(
-      onRefresh: _refreshData,
-      color: Colors.blue.shade700,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: _filteredTickets.length,
-        itemBuilder: (context, index) {
-          final ticket = _filteredTickets[index];
-          return _buildTicketCard(ticket, cardColor);
-        },
-      ),
-    );
-  }
-
+  // بطاقة التذكرة
   Widget _buildTicketCard(Ticket ticket, Color cardColor) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
