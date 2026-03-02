@@ -48,12 +48,13 @@ class StatusScreen extends StatefulWidget {
   final String token;
   final VoidCallback onOpenNotifications;
   final Future<void> Function() onRefreshUnread;
-
+  final VoidCallback? onOpenIptv;  // ✅ إضافة callback لفتح IPTV
   const StatusScreen({
     super.key,
     required this.token,
     required this.onOpenNotifications,
     required this.onRefreshUnread,
+    this.onOpenIptv,  // ✅ إضافة هنا
   });
 
   @override
@@ -66,7 +67,14 @@ class _StatusScreenState extends State<StatusScreen>
   bool loading = true;
   String? error;
   int notificationsCount = 0;
-
+   // ✅ متغيرات لآخر نشاط
+  String _lastTicket = 'لا توجد';
+  String _lastAddDays = 'لم يتم';
+  String _lastIptvUpdate = 'لم يتم';
+  DateTime? _lastTicketDate;
+  DateTime? _lastAddDaysDate;
+  DateTime? _lastIptvDate;
+  
   late AnimationController _pulseController;
   late AnimationController _slideController;
   late AnimationController _progressController;
@@ -150,33 +158,37 @@ void _startPulseCycle() {
 
   /// ================= API =================
 
-  Future<void> load() async {
-    setState(() {
-      loading = true;
-      error = null;
-    });
+ Future<void> load() async {
+  setState(() {
+    loading = true;
+    error = null;
+  });
 
-    try {
-      final res = await ApiService.getStatus(widget.token);
-      if (res["ok"] == true) {
-        setState(() {
-          data = res;
-          loading = false;
-        });
-        _progressController.forward(from: 0);
-      } else {
-        setState(() {
-          error = res["error"]?.toString();
-          loading = false;
-        });
-      }
-    } catch (_) {
+  try {
+    final res = await ApiService.getStatus(widget.token);
+    if (res["ok"] == true) {
       setState(() {
-        error = "فشل الاتصال بالسيرفر";
+        data = res;
+        loading = false;
+      });
+      _progressController.forward(from: 0);
+      
+      // ✅ جلب آخر نشاط
+      await _loadLastActivity();
+      
+    } else {
+      setState(() {
+        error = res["error"]?.toString();
         loading = false;
       });
     }
+  } catch (_) {
+    setState(() {
+      error = "فشل الاتصال بالسيرفر";
+      loading = false;
+    });
   }
+}
 
   Future<void> loadNotificationsCount() async {
     try {
@@ -207,7 +219,118 @@ void _startPulseCycle() {
       return dateStr;
     }
   }
+// أضف هذه الدالة بعد _formatDate (حوالي السطر 180)
+String _formatTimeAgo(DateTime date) {
+  final now = DateTime.now();
+  final difference = now.difference(date);
 
+  if (difference.inDays > 0) {
+    return 'منذ ${difference.inDays} يوم';
+  } else if (difference.inHours > 0) {
+    return 'منذ ${difference.inHours} ساعة';
+  } else if (difference.inMinutes > 0) {
+    return 'منذ ${difference.inMinutes} دقيقة';
+  } else {
+    return 'الآن';
+  }
+}
+
+ 
+// ✅ دالة جديدة لجلب آخر نشاط
+Future<void> _loadLastActivity() async {
+  try {
+    // جلب آخر تذكرة
+    final ticketsRes = await ApiService.getMyTickets(widget.token);
+    if (ticketsRes['ok'] == true && ticketsRes['items'] != null) {
+      final items = ticketsRes['items'] as List;
+      if (items.isNotEmpty) {
+        items.sort((a, b) {
+          final dateA = DateTime.parse(a['created_at'] ?? '');
+          final dateB = DateTime.parse(b['created_at'] ?? '');
+          return dateB.compareTo(dateA);
+        });
+        
+        final lastTicket = items.first;
+        _lastTicket = 'تذكرة #${lastTicket['id']}';
+        _lastTicketDate = DateTime.parse(lastTicket['created_at']);
+      }
+    }
+    
+    // جلب آخر إضافة أيام من الإشعارات
+    final notifRes = await ApiService.getNotifications(widget.token);
+    if (notifRes['ok'] == true && notifRes['items'] != null) {
+      final items = notifRes['items'] as List;
+      
+      final addDaysNotifs = items.where((n) => 
+        n['type'] == 'extend_days' || 
+        n['type'] == 'renewed'
+      ).toList();
+      
+      if (addDaysNotifs.isNotEmpty) {
+        addDaysNotifs.sort((a, b) {
+          final dateA = DateTime.parse(a['created_at'] ?? '');
+          final dateB = DateTime.parse(b['created_at'] ?? '');
+          return dateB.compareTo(dateA);
+        });
+        
+        final lastAdd = addDaysNotifs.first;
+        if (lastAdd['type'] == 'extend_days') {
+          _lastAddDays = 'إضافة أيام';
+        } else {
+          _lastAddDays = 'تجديد';
+        }
+        _lastAddDaysDate = DateTime.parse(lastAdd['created_at']);
+      }
+    }
+    
+    // ✅ جلب آخر تحديث IPTV بشكل حقيقي
+    if (notifRes['ok'] == true && notifRes['items'] != null) {
+      final items = notifRes['items'] as List;
+      
+      // البحث عن إشعارات IPTV الفعلية
+      final iptvNotifs = items.where((n) => 
+        n['type'] == 'iptv_update' || 
+        (n['title']?.toString().contains('IPTV') == true) ||
+        (n['title']?.toString().contains('قنوات') == true) ||
+        (n['body']?.toString().contains('قنوات') == true) ||
+        (n['body']?.toString().contains('IPTV') == true)
+      ).toList();
+      
+      if (iptvNotifs.isNotEmpty) {
+        iptvNotifs.sort((a, b) {
+          final dateA = DateTime.parse(a['created_at'] ?? '');
+          final dateB = DateTime.parse(b['created_at'] ?? '');
+          return dateB.compareTo(dateA);
+        });
+        
+        final lastIptv = iptvNotifs.first;
+        
+        // استخراج معلومات التحديث
+        String updateMessage = 'تحديث';
+        if (lastIptv['title'] != null) {
+          updateMessage = lastIptv['title'];
+        } else if (lastIptv['body'] != null) {
+          updateMessage = lastIptv['body'].split('\n')[0]; // أول سطر فقط
+          if (updateMessage.length > 30) {
+            updateMessage = updateMessage.substring(0, 30) + '...';
+          }
+        }
+        
+        _lastIptvUpdate = updateMessage;
+        _lastIptvDate = DateTime.parse(lastIptv['created_at']);
+      } else {
+        // إذا ما في إشعارات، نعرض آخر تحديث معروف
+        _lastIptvUpdate = 'آخر تحديث';
+        _lastIptvDate = DateTime.now().subtract(const Duration(days: 1));
+      }
+    }
+    
+    setState(() {});
+    
+  } catch (e) {
+    debugPrint('❌ خطأ في جلب آخر نشاط: $e');
+  }
+}
   // ✅ دالة مشاركة الاشتراك عبر واتساب
   Future<void> _shareSubscriptionToWhatsApp() async {
     try {
@@ -271,92 +394,265 @@ void _startPulseCycle() {
     );
   }
 
-  // ✅ تحسين 1: إضافة بطاقة آخر نشاط
-  Widget _buildRecentActivityCard() {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 15,
-            spreadRadius: 2,
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(Icons.history, color: Colors.blue.shade700, size: 20),
-              ),
-              const SizedBox(width: 12),
-              const Text(
-                'آخر نشاط',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildActivityItem(
-            icon: Icons.support_agent,
-            label: 'آخر تذكرة',
-            value: 'لا توجد',
-            color: Colors.orange,
-          ),
-          const SizedBox(height: 8),
-          _buildActivityItem(
-            icon: Icons.calendar_today,
-            label: 'آخر إضافة أيام',
-            value: 'لم يتم',
-            color: Colors.green,
-          ),
-        ],
-      ),
-    );
+ // ✅ دالة فتح IPTV (إذا احتجتها)
+  void _openIptv() {
+    if (widget.onOpenIptv != null) {
+      widget.onOpenIptv!();
+    }
   }
-
-  Widget _buildActivityItem({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Row(
-      children: [
-        Container(
-          width: 30,
-          height: 30,
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: color, size: 16),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            label,
-            style: const TextStyle(fontSize: 13, color: Colors.grey),
-          ),
-        ),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+  // ✅ تحسين 1: إضافة بطاقة آخر نشاط
+//
+ // ✅ بطاقة مستقلة لآخر تحديث IPTV (مع بيانات حقيقية)
+Widget _buildIptvUpdateCard() {
+  return Container(
+    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      gradient: LinearGradient(
+        colors: [Colors.deepPurple.shade50, Colors.white],
+        begin: Alignment.topRight,
+        end: Alignment.bottomLeft,
+      ),
+      borderRadius: BorderRadius.circular(20),
+      border: Border.all(color: Colors.deepPurple.shade200),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.deepPurple.withOpacity(0.1),
+          blurRadius: 15,
+          spreadRadius: 2,
         ),
       ],
-    );
-  }
+    ),
+    child: InkWell(
+      onTap: widget.onOpenIptv,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.shade100,
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Icon(
+                Icons.live_tv,
+                color: Colors.deepPurple.shade700,
+                size: 30,
+              ),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'آخر تحديث IPTV',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.deepPurple,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.update,
+                        size: 14,
+                        color: Colors.deepPurple.shade400,
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          _lastIptvUpdate,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Colors.deepPurple.shade700,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_lastIptvDate != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      _formatTimeAgo(_lastIptvDate!),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.deepPurple.shade100,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.arrow_forward,
+                color: Colors.deepPurple.shade700,
+                size: 20,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+Widget _buildRecentActivityCard() {
+  return Container(
+    margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.05),
+          blurRadius: 15,
+          spreadRadius: 2,
+        ),
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(Icons.history, color: Colors.blue.shade700, size: 20),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'آخر نشاط',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        
+        // آخر تذكرة
+        _buildActivityItem(
+          icon: Icons.support_agent,
+          label: 'آخر تذكرة',
+          value: _lastTicket,
+          date: _lastTicketDate,
+          color: Colors.orange,
+          onTap: () {
+            // TODO: فتح آخر تذكرة
+          },
+        ),
+        
+        const Divider(height: 16),
+        
+        // آخر إضافة أيام
+        _buildActivityItem(
+          icon: Icons.calendar_today,
+          label: 'آخر إضافة أيام',
+          value: _lastAddDays,
+          date: _lastAddDaysDate,
+          color: Colors.green,
+          onTap: () {
+            // TODO: فتح شاشة إضافة أيام
+          },
+        ),
+        
+       
+      ],
+    ),
+  );
+}
+
+// ✅ دالة محسنة لعرض عنصر النشاط مع التاريخ
+Widget _buildActivityItem({
+  required IconData icon,
+  required String label,
+  required String value,
+  DateTime? date,
+  required Color color,
+  VoidCallback? onTap,
+}) {
+  return InkWell(
+    onTap: onTap,
+    borderRadius: BorderRadius.circular(8),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            flex: 2,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Colors.grey,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            flex: 3,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 13, 
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (date != null)
+                  Text(
+                    _formatTimeAgo(date),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Colors.grey.shade500,
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (onTap != null)
+            Icon(
+              Icons.chevron_left,
+              size: 18,
+              color: Colors.grey.shade400,
+            ),
+        ],
+      ),
+    ),
+  );
+}
+
+  
 
   // ✅ تحسين 2: إضافة مؤشر استهلاك البيانات
   Widget _buildDataUsageCard() {

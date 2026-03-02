@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../services/xtream_service.dart';
-import 'iptv_screen.dart';
+import 'new_iptv_screen.dart';
 
 class XtreamLoginScreen extends StatefulWidget {
   final Function(XtreamService)? onLoginSuccess;
@@ -100,7 +100,7 @@ class _XtreamLoginScreenState extends State<XtreamLoginScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (_) => IptvScreen(xtreamService: service),
+            builder: (_) => NewIptvScreen(xtreamService: service),
           ),
         );
       }

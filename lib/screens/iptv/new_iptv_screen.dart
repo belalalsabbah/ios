@@ -11,6 +11,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:flutter/services.dart';
 import 'package:screen_brightness/screen_brightness.dart';
 import 'dart:async';
+import 'package:shared_preferences/shared_preferences.dart'; // ✅ إضافة للمفضلة
 
 class NewIptvScreen extends StatefulWidget {
   final XtreamService xtreamService;
@@ -50,11 +51,19 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   
+  // ✅ للترتيب
+  String _sortBy = 'latest'; // 'latest', 'oldest', 'alphabetical'
+  
   late TabController _tabController;
   
   // مشغل الفيديو للقنوات المباشرة
   Player? _player;
   VideoController? _videoController;
+
+  // ✅ للمفضلة
+  List<String> _savedChannels = [];
+  List<String> _savedMovies = [];
+  List<String> _savedSeries = [];
 
   @override
   void initState() {
@@ -73,6 +82,7 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _ensureCategoriesLoaded();
       _loadAllContent();
+      _loadSavedItems(); // ✅ تحميل المفضلة
     });
     
     _searchController.addListener(() {
@@ -80,6 +90,80 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
         _searchQuery = _searchController.text.toLowerCase();
       });
     });
+  }
+
+  // ✅ تحميل العناصر المحفوظة من SharedPreferences
+  Future<void> _loadSavedItems() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _savedChannels = prefs.getStringList('saved_channels') ?? [];
+      _savedMovies = prefs.getStringList('saved_movies') ?? [];
+      _savedSeries = prefs.getStringList('saved_series') ?? [];
+    });
+  }
+
+  // ✅ حفظ/إزالة من المفضلة
+  Future<void> _toggleSave(dynamic item) async {
+  final prefs = await SharedPreferences.getInstance();
+  final String id = item.streamId.toString();
+  String listName; // ✅ تغيير إلى String
+  List<String> currentList;
+
+  if (item is LiveStreamItem) {
+    listName = 'saved_channels';
+    currentList = List.from(_savedChannels);
+  } else if (item is VodItem) {
+    listName = 'saved_movies';
+    currentList = List.from(_savedMovies);
+  } else {
+    listName = 'saved_series';
+    currentList = List.from(_savedSeries);
+  }
+
+  if (currentList.contains(id)) {
+    currentList.remove(id);
+  } else {
+    currentList.add(id);
+  }
+
+  await prefs.setStringList(listName, currentList);
+  setState(() {
+    if (item is LiveStreamItem) _savedChannels = currentList;
+    else if (item is VodItem) _savedMovies = currentList;
+    else _savedSeries = currentList;
+  });
+}
+
+  bool _isSaved(dynamic item) {
+    final String id = item.streamId.toString();
+    if (item is LiveStreamItem) return _savedChannels.contains(id);
+    if (item is VodItem) return _savedMovies.contains(id);
+    return _savedSeries.contains(id);
+  }
+
+  // ✅ دالة الترتيب
+  List<dynamic> _sortContent(List<dynamic> content) {
+    final sorted = List.from(content);
+    switch (_sortBy) {
+      case 'latest':
+        sorted.sort((a, b) {
+          int idA = a is LiveStreamItem ? a.streamId : (a is VodItem ? a.streamId : (a as SeriesItem).streamId);
+          int idB = b is LiveStreamItem ? b.streamId : (b is VodItem ? b.streamId : (b as SeriesItem).streamId);
+          return idB.compareTo(idA);
+        });
+        break;
+      case 'oldest':
+        sorted.sort((a, b) {
+          int idA = a is LiveStreamItem ? a.streamId : (a is VodItem ? a.streamId : (a as SeriesItem).streamId);
+          int idB = b is LiveStreamItem ? b.streamId : (b is VodItem ? b.streamId : (b as SeriesItem).streamId);
+          return idA.compareTo(idB);
+        });
+        break;
+      case 'alphabetical':
+        sorted.sort((a, b) => a.name.compareTo(b.name));
+        break;
+    }
+    return sorted;
   }
 
   // ✅ دالة التحديث عند السحب للأسفل
@@ -226,25 +310,9 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
     }
   }
 
+  // ✅ دالة قديمة نحتفظ بها ولكننا نستخدم _sortContent الجديدة
   List<dynamic> _sortContentByDate(List<dynamic> content) {
-    List<dynamic> sorted = List.from(content);
-    
-    sorted.sort((a, b) {
-      int idA = 0;
-      int idB = 0;
-      
-      if (a is LiveStreamItem) idA = a.streamId;
-      else if (a is VodItem) idA = a.streamId;
-      else if (a is SeriesItem) idA = a.streamId;
-      
-      if (b is LiveStreamItem) idB = b.streamId;
-      else if (b is VodItem) idB = b.streamId;
-      else if (b is SeriesItem) idB = b.streamId;
-      
-      return idB.compareTo(idA);
-    });
-    
-    return sorted;
+    return _sortContent(content); // استدعاء الدالة الجديدة
   }
 
   String _getCategoryName(int categoryId) {
@@ -322,88 +390,118 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
     );
   }
 
-  void _playChannel(LiveStreamItem channel) {
-    try {
-      _player?.stop();
-      final url = widget.xtreamService.getLiveStreamUrl(channel.streamId);
-      print('🎬 تشغيل القناة: $url');
-      
-      _player?.open(Media(url));
-      
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => _ChannelPlayerScreen(
-            channelName: channel.name,
-            player: _player!,
-            videoController: _videoController!,
-            xtreamService: widget.xtreamService,
+ Future<void> _playChannel(LiveStreamItem channel) async {
+  try {
+    _player?.stop();
+    // ✅ استخدم getLiveStreamUrl (التي تستخدم البروكسي) بدلاً من getLiveStreamUrlDirect
+    final url = await widget.xtreamService.getLiveStreamUrl(channel.streamId);
+    
+    if (url.isEmpty) {
+      print('❌ رابط القناة فارغ');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ فشل الحصول على رابط القناة'),
+            backgroundColor: Colors.red,
           ),
+        );
+      }
+      return;
+    }
+
+    print('🎬 تشغيل القناة: $url');
+    _player?.open(Media(url));
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ChannelPlayerScreen(
+          channelName: channel.name,
+          player: _player!,
+          videoController: _videoController!,
+          xtreamService: widget.xtreamService,
         ),
-      ).then((_) => _player?.stop());
-      
-    } catch (e) {
-      print('❌ خطأ في تشغيل القناة: $e');
+      ),
+    ).then((_) => _player?.stop());
+  } catch (e) {
+    print('❌ خطأ في تشغيل القناة: $e');
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('خطأ في التشغيل: $e')),
       );
     }
   }
+}
 
-  void _playMovie(VodItem movie) async {
+  Future<void> _playMovie(VodItem movie) async {
+  try {
+    print('=' * 60);
+    print('🎬 محاولة تشغيل الفيلم: ${movie.name} (ID: ${movie.streamId})');
+
+    String extension = 'mp4';
     try {
-      print('=' * 60);
-      print('🎬 محاولة تشغيل الفيلم: ${movie.name} (ID: ${movie.streamId})');
-      
       final movieInfo = await widget.xtreamService.getMovieInfo(movie.streamId);
-      String extension = 'mp4';
-      
-      if (movieInfo != null && 
-          movieInfo['movie_data'] != null && 
+      if (movieInfo != null &&
+          movieInfo['movie_data'] != null &&
           movieInfo['movie_data']['container_extension'] != null) {
         extension = movieInfo['movie_data']['container_extension'];
-        print('📦 الامتداد المستخرج: $extension');
       }
-      
-      final url = widget.xtreamService.getMovieUrl(movie.streamId, extension);
-      print('📺 رابط الفيلم: $url');
-      print('=' * 60);
-      
-      List<VodItem> similarMovies = [];
-      try {
-        similarMovies = _movies
-            .where((m) => m.categoryId == movie.categoryId && m.streamId != movie.streamId)
-            .take(10)
-            .toList();
-      } catch (e) {
-        print('⚠️ خطأ في جلب أفلام مشابهة: $e');
-      }
-      
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => VideoPlayerScreen(
-            title: movie.name,
-            url: url,
-            color: Colors.red,
-            xtreamService: widget.xtreamService,
-            similarMovies: similarMovies,
-          ),
-        ),
-      );
-      
     } catch (e) {
-      print('❌ خطأ في تشغيل الفيلم: $e');
+      print('⚠️ فشل جلب معلومات الفيلم، استخدام mp4 افتراضياً');
+    }
+
+    // ✅ استخدم getMovieUrl (التي تستخدم البروكسي) بدلاً من getMovieUrlDirect
+    final url = await widget.xtreamService.getMovieUrl(movie.streamId, extension);
+    
+    if (url.isEmpty) {
+      print('❌ رابط الفيلم فارغ');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('خطأ في تشغيل الفيلم: $e'),
+          const SnackBar(
+            content: Text('❌ فشل الحصول على رابط الفيلم'),
             backgroundColor: Colors.red,
           ),
         );
       }
+      return;
+    }
+
+    print('📺 رابط الفيلم: $url');
+
+    List<VodItem> similarMovies = [];
+    try {
+      similarMovies = _movies
+          .where((m) => m.categoryId == movie.categoryId && m.streamId != movie.streamId)
+          .take(10)
+          .toList();
+    } catch (e) {
+      print('⚠️ خطأ في جلب أفلام مشابهة: $e');
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => VideoPlayerScreen(
+          title: movie.name,
+          url: url,
+          color: Colors.red,
+          xtreamService: widget.xtreamService,
+          similarMovies: similarMovies,
+        ),
+      ),
+    );
+  } catch (e) {
+    print('❌ خطأ في تشغيل الفيلم: $e');
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('خطأ في تشغيل الفيلم: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
+}
 
   void _showChannelInfo(LiveStreamItem channel) {
     showModalBottomSheet(
@@ -516,7 +614,8 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
   @override
   Widget build(BuildContext context) {
     final currentContent = _getCurrentContent();
-    final sortedContent = _sortContentByDate(currentContent);
+    // ✅ استخدام دالة الترتيب الجديدة
+    final sortedContent = _sortContent(currentContent);
     final filteredContent = _searchQuery.isEmpty 
         ? sortedContent 
         : sortedContent.where((item) => 
@@ -538,6 +637,20 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
           },
         ),
         actions: [
+          // ✅ زر الترتيب
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.sort, color: Colors.white),
+            onSelected: (value) {
+              setState(() {
+                _sortBy = value;
+              });
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem(value: 'latest', child: Text('الأحدث')),
+              const PopupMenuItem(value: 'oldest', child: Text('الأقدم')),
+              const PopupMenuItem(value: 'alphabetical', child: Text('أبجدي')),
+            ],
+          ),
           // ✅ زر تحديث يدوي
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
@@ -646,14 +759,13 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
                           backgroundColor: _selectedCategoryId == categoryId 
                               ? Colors.deepPurple 
                               : Colors.deepPurple.shade100,
-                          child: Text(
-                            count.toString(),
-                            style: TextStyle(
-                              color: _selectedCategoryId == categoryId 
-                                  ? Colors.white 
-                                  : Colors.deepPurple,
-                              fontWeight: FontWeight.bold,
-                            ),
+                          // ✅ استخدام أيقونات بدلاً من النص
+                          child: Icon(
+                            _selectedTabIndex == 0 ? Icons.live_tv : (_selectedTabIndex == 1 ? Icons.movie : Icons.tv),
+                            color: _selectedCategoryId == categoryId 
+                                ? Colors.white 
+                                : Colors.deepPurple,
+                            size: 16,
                           ),
                         ),
                         title: Text(
@@ -691,28 +803,89 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
       ),
       body: Column(
         children: [
+          // ✅ شريط البحث مع زر تحديث بجانبه
           Padding(
             padding: const EdgeInsets.all(8.0),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: '🔍 بحث...',
-                prefixIcon: const Icon(Icons.search, color: Colors.deepPurple),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.grey),
-                        onPressed: () => _searchController.clear(),
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  borderSide: BorderSide.none,
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: '🔍 بحث...',
+                      prefixIcon: const Icon(Icons.search, color: Colors.deepPurple),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, color: Colors.grey),
+                              onPressed: () => _searchController.clear(),
+                            )
+                          : null,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(15),
+                        borderSide: BorderSide.none,
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey.shade100,
+                    ),
+                  ),
                 ),
-                filled: true,
-                fillColor: Colors.grey.shade100,
-              ),
+                const SizedBox(width: 8),
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.deepPurple),
+                  onPressed: () {
+                    _refreshIndicatorKey.currentState?.show();
+                  },
+                ),
+              ],
             ),
           ),
+
+          // ✅ كاروسيل للأفلام المقترحة (يظهر فقط في تبويب الأفلام)
+          if (_selectedTabIndex == 1 && _movies.isNotEmpty)
+            Container(
+              height: 200,
+              margin: const EdgeInsets.only(bottom: 8),
+              child: PageView.builder(
+                itemCount: _movies.take(5).length,
+                itemBuilder: (context, index) {
+                  final movie = _movies[index];
+                  return GestureDetector(
+                    onTap: () => _playMovie(movie),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        CachedNetworkImage(
+                          imageUrl: movie.streamIcon,
+                          fit: BoxFit.cover,
+                          errorWidget: (_, __, ___) => Container(color: Colors.grey),
+                        ),
+                        Container(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [Colors.transparent, Colors.black54],
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 16,
+                          left: 16,
+                          child: Text(
+                            movie.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
+            ),
           
           Expanded(
             child: _loading
@@ -768,150 +941,174 @@ class _NewIptvScreenState extends State<NewIptvScreen> with SingleTickerProvider
   Widget _buildContentCard(dynamic item) {
     final isLive = _selectedTabIndex == 0;
     final isMovie = _selectedTabIndex == 1;
+    final saved = _isSaved(item);
     
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 3,
-            child: GestureDetector(
-              onTap: () {
-                if (isLive) {
-                  _playChannel(item);
-                } else if (isMovie) {
-                  _playMovie(item);
-                } else {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => EpisodesScreen(
-                        xtreamService: widget.xtreamService,
-                        series: item,
-                      ),
-                    ),
-                  );
-                }
-              },
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(12)),
-                    child: CachedNetworkImage(
-                      imageUrl: item.streamIcon,
-                      fit: BoxFit.cover,
-                      placeholder: (context, url) => Container(
-                        color: Colors.grey.shade300,
-                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                      ),
-                      errorWidget: (context, url, error) => Container(
-                        color: isLive ? Colors.blue.shade50 : 
-                               isMovie ? Colors.red.shade50 : Colors.orange.shade50,
-                        child: Icon(
-                          isLive ? Icons.live_tv : (isMovie ? Icons.movie : Icons.tv),
-                          size: 40,
-                          color: isLive ? Colors.blue.shade700 : 
-                                 isMovie ? Colors.red.shade700 : Colors.orange.shade700,
+    return Hero(
+      tag: '${item.streamId}-${item.runtimeType}',
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16), // ✅ حواف أكثر استدارة
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: GestureDetector(
+                onTap: () {
+                  if (isLive) {
+                    _playChannel(item);
+                  } else if (isMovie) {
+                    _playMovie(item);
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => EpisodesScreen(
+                          xtreamService: widget.xtreamService,
+                          series: item,
                         ),
                       ),
-                    ),
-                  ),
-                  Positioned(
-                    bottom: 8,
-                    right: 8,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.6),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Icon(
-                        isLive ? Icons.play_arrow : (isMovie ? Icons.play_arrow : Icons.list),
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          
-          Expanded(
-            flex: 1,
-            child: GestureDetector(
-              onTap: () {
-                if (isLive) {
-                  _showChannelInfo(item);
-                } else if (isMovie) {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => MovieDetailsScreen(
-                        movie: item,
-                        xtreamService: widget.xtreamService,
-                      ),
-                    ),
-                  );
-                } else {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => EpisodesScreen(
-                        xtreamService: widget.xtreamService,
-                        series: item,
-                      ),
-                    ),
-                  );
-                }
-              },
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                    );
+                  }
+                },
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    Text(
-                      item.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 10,
-                          color: Colors.grey.shade600,
+                    ClipRRect(
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                      child: CachedNetworkImage(
+                        imageUrl: item.streamIcon,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          color: Colors.grey.shade300,
+                          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                         ),
-                        const SizedBox(width: 2),
-                        Expanded(
-                          child: Text(
-                            _getCategoryName(item.categoryId),
-                            style: TextStyle(
-                              fontSize: 10,
-                              color: Colors.grey.shade600,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        errorWidget: (context, url, error) => Container(
+                          color: isLive ? Colors.blue.shade50 : 
+                                 isMovie ? Colors.red.shade50 : Colors.orange.shade50,
+                          child: Icon(
+                            isLive ? Icons.live_tv : (isMovie ? Icons.movie : Icons.tv),
+                            size: 40,
+                            color: isLive ? Colors.blue.shade700 : 
+                                   isMovie ? Colors.red.shade700 : Colors.orange.shade700,
                           ),
                         ),
-                      ],
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 8,
+                      right: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isLive ? Icons.play_arrow : (isMovie ? Icons.play_arrow : Icons.list),
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                    // ✅ زر المفضلة
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: GestureDetector(
+                        onTap: () => _toggleSave(item),
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            shape: BoxShape.circle,
+                          ),
+                          child: Icon(
+                            saved ? Icons.bookmark : Icons.bookmark_border,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
-          ),
-        ],
+            
+            Expanded(
+              flex: 1,
+              child: GestureDetector(
+                onTap: () {
+                  if (isLive) {
+                    _showChannelInfo(item);
+                  } else if (isMovie) {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => MovieDetailsScreen(
+                          movie: item,
+                          xtreamService: widget.xtreamService,
+                        ),
+                      ),
+                    );
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => EpisodesScreen(
+                          xtreamService: widget.xtreamService,
+                          series: item,
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            size: 10,
+                            color: Colors.grey.shade600,
+                          ),
+                          const SizedBox(width: 2),
+                          Expanded(
+                            child: Text(
+                              _getCategoryName(item.categoryId),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey.shade600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1023,26 +1220,31 @@ class _ChannelPlayerScreenState extends State<_ChannelPlayerScreen> {
     }
   }
 
-  void _changeChannel(LiveStreamItem channel) {
-    try {
-      widget.player.stop();
-      final url = widget.xtreamService.getLiveStreamUrl(channel.streamId);
-      widget.player.open(Media(url));
-      
-      Navigator.pop(context);
-      setState(() {});
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('📺 ${channel.name}'),
-          duration: const Duration(seconds: 1),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    } catch (e) {
-      print('❌ خطأ في تغيير القناة: $e');
+ Future<void> _changeChannel(LiveStreamItem channel) async {
+  try {
+    widget.player.stop();
+    // ✅ استخدم getLiveStreamUrl بدلاً من getLiveStreamUrlDirect
+    final url = await widget.xtreamService.getLiveStreamUrl(channel.streamId);
+    if (url.isEmpty) {
+      print('❌ رابط القناة فارغ');
+      return;
     }
+    widget.player.open(Media(url));
+
+    Navigator.pop(context);
+    setState(() {});
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('📺 ${channel.name}'),
+        duration: const Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  } catch (e) {
+    print('❌ خطأ في تغيير القناة: $e');
   }
+}
 
   @override
   Widget build(BuildContext context) {

@@ -16,7 +16,6 @@ import 'my_tickets_screen.dart';
 import 'ticket_details_screen.dart';
 import 'admin_webview.dart';
 import 'iptv/xtream_login_screen.dart';
-import 'iptv/iptv_screen.dart';
 import 'iptv/iptv_settings_screen.dart';
 import 'iptv/new_iptv_screen.dart';
 
@@ -69,7 +68,6 @@ class _MainNavigationState extends State<MainNavigation> {
     
     _index = widget.selectedTab;
     
-    // ✅ إذا كان في openTicketId من الإشعار
     if (widget.openTicketId != null) {
       debugPrint('📱 initState: openTicketId = ${widget.openTicketId}');
       _ticketIdToOpen = widget.openTicketId;
@@ -105,7 +103,6 @@ class _MainNavigationState extends State<MainNavigation> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     
-    // ✅ فتح التذكرة بعد بناء الواجهة
     if (_shouldOpenTicket && _ticketIdToOpen != null) {
       debugPrint('📱 didChangeDependencies: فتح تذكرة $_ticketIdToOpen');
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -115,18 +112,15 @@ class _MainNavigationState extends State<MainNavigation> {
     }
   }
 
-  // ✅ دالة جديدة لفتح التذكرة من الإشعار
   void _openTicketFromNotification(int ticketId) {
     debugPrint('📱 فتح تذكرة $ticketId من الإشعار');
     
-    // التأكد أننا في تبويب الدعم
     if (_index != 3) {
       setState(() {
         _index = 3;
       });
     }
     
-    // انتظر حتى تتبنى شاشة الدعم
     Future.delayed(const Duration(milliseconds: 500), () {
       if (_supportKey.currentContext != null) {
         debugPrint('📱 فتح تفاصيل التذكرة $ticketId');
@@ -166,7 +160,9 @@ class _MainNavigationState extends State<MainNavigation> {
           externalPort: useExternal ? externalPort : null,
         );
         _isXtreamLoggedIn = true;
+        
         print('✅ تم تحميل بيانات Xtream بنجاح');
+        print('📡 سيتم استخدام البروكسي للتشغيل: http://50.50.50.1/api/iptv_proxy.php');
       }
     } catch (e) {
       print('خطأ في تحميل بيانات Xtream: $e');
@@ -303,6 +299,52 @@ class _MainNavigationState extends State<MainNavigation> {
     return true;
   }
 
+  // ✅ إعادة تنظيم أزرار الـ AppBar: دمجها في قائمة منبثقة
+  void _showOptionsMenu() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.logout, color: Colors.red),
+                title: const Text('تسجيل الخروج'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _logout();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.science, color: Colors.orange),
+                title: const Text('اختبار FCM'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showFcmTest();
+                },
+              ),
+              if (_username == 'belal')
+                ListTile(
+                  leading: const Icon(Icons.settings, color: Colors.grey),
+                  title: const Text('إعدادات IPTV'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openIptvSettings();
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   List<BottomNavigationBarItem> _buildNavItems() {
     List<BottomNavigationBarItem> items = [
       const BottomNavigationBarItem(
@@ -345,9 +387,10 @@ class _MainNavigationState extends State<MainNavigation> {
         icon: Icon(Icons.support_agent),
         label: "الدعم",
       ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.live_tv),
-        label: "IPTV",
+      // ✅ إضافة اسم المستخدم في تبويب IPTV
+      BottomNavigationBarItem(
+        icon: const Icon(Icons.live_tv),
+        label: _isXtreamLoggedIn ? 'IPTV (${_xtreamService?.username})' : 'IPTV',
       ),
     ];
 
@@ -467,42 +510,17 @@ class _MainNavigationState extends State<MainNavigation> {
           title: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.red.withOpacity(0.3), width: 1),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.logout_rounded, color: Colors.red, size: 22),
-                      onPressed: _logout,
-                      splashRadius: 24,
-                      tooltip: 'تسجيل الخروج',
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.1),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1),
-                    ),
-                    child: IconButton(
-                      icon: const Icon(Icons.science, color: Colors.orange, size: 18),
-                      onPressed: _showFcmTest,
-                      splashRadius: 20,
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(
-                        minWidth: 32,
-                        minHeight: 32,
-                      ),
-                      tooltip: 'اختبار FCM',
-                    ),
-                  ),
-                ],
+              // ✅ أيقونة القائمة (Menu) بدلاً من الأزرار المبعثرة
+              Container(
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                  shape: BoxShape.circle,
+                ),
+                child: IconButton(
+                  icon: Icon(Icons.more_vert, color: isDark ? Colors.white : Colors.black),
+                  onPressed: _showOptionsMenu,
+                  tooltip: 'خيارات',
+                ),
               ),
 
               Column(
@@ -513,42 +531,26 @@ class _MainNavigationState extends State<MainNavigation> {
                 ],
               ),
               
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_username == 'belal')
-                    Container(
-                      decoration: BoxDecoration(
-                        color: Colors.grey.withOpacity(0.1),
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.grey.withOpacity(0.3), width: 1),
-                      ),
-                      child: IconButton(
-                        icon: const Icon(Icons.settings, color: Colors.grey, size: 20),
-                        onPressed: _openIptvSettings,
-                        splashRadius: 20,
-                        tooltip: 'إعدادات IPTV',
-                      ),
-                    ),
-                  if (_username == 'belal') const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Colors.blue.shade700, Colors.blue.shade500],
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      _username,
-                      style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
-                    ),
+              // اسم المستخدم (يبقى كما هو)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [Colors.blue.shade700, Colors.blue.shade500],
                   ),
-                ],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  _username,
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                ),
               ),
             ],
           ),
           centerTitle: true,
+          backgroundColor: isDark ? Colors.grey[900] : Colors.white,
+          foregroundColor: isDark ? Colors.white : Colors.black,
+          elevation: 0,
         ),
         body: Stack(
           children: [
@@ -561,6 +563,7 @@ class _MainNavigationState extends State<MainNavigation> {
                     token: widget.token,
                     onOpenNotifications: () => _switchTab(2),
                     onRefreshUnread: refreshUnread,
+                    onOpenIptv: () => _switchTab(4),  // ✅ فتح IPTV
                   ),
                 ),
               ),

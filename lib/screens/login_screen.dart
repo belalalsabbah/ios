@@ -1,9 +1,11 @@
+// lib/screens/login_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/api_service.dart';
 import '../services/token_store.dart';
-import '../services/push_service.dart'; // ✅ إضافة استيراد PushService
+import '../services/push_service.dart';
 import 'main_navigation.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -21,9 +23,6 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _usernameController = TextEditingController();
-  final _passwordController = TextEditingController();
-
   final userCtrl = TextEditingController();
   final passCtrl = TextEditingController();
 
@@ -34,7 +33,6 @@ class _LoginScreenState extends State<LoginScreen> {
   void initState() {
     super.initState();
 
-    // ✅ تعبئة تلقائية بعد إنشاء الحساب
     if (widget.prefillUsername != null) {
       userCtrl.text = widget.prefillUsername!;
     }
@@ -64,25 +62,18 @@ class _LoginScreenState extends State<LoginScreen> {
         final token = res["token"].toString();
         final username = userCtrl.text.trim();
 
-        // ✅ تخزين التوكن
         await TokenStore.save(token);
-
-        // ✅ تخزين اسم المستخدم في SharedPreferences
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('username', username);
 
-        // ✅ تحديث جميع أجهزة المستخدم للإشعارات
         try {
           await PushService.refreshAllDevices(token);
-          print("✅ تم تحديث أجهزة المستخدم للإشعارات");
         } catch (e) {
-          print("⚠️ فشل تحديث أجهزة المستخدم: $e");
-          // لا نوقف تسجيل الدخول إذا فشل تحديث الإشعارات
+          debugPrint("⚠️ فشل تحديث أجهزة المستخدم: $e");
         }
 
         if (!mounted) return;
 
-        // ✅ الانتقال إلى الصفحة الرئيسية
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
@@ -93,25 +84,44 @@ class _LoginScreenState extends State<LoginScreen> {
         return;
       }
 
-      // 📌 تحليل الأخطاء من السيرفر
-      switch (res["error"]) {
-        case "no_account":
-          setState(() => error =
-              "لا يوجد حساب للتطبيق، يرجى الدخول من داخل الشبكة أولاً");
-          break;
-        case "wrong_password":
-        case "invalid_credentials":
-          setState(() => error = "اسم المستخدم أو كلمة السر غير صحيحة");
-          break;
-        case "no_app_account":
-          setState(() => error = "لا يوجد حساب تطبيق لهذا المستخدم");
-          break;
-        default:
-          setState(() => error = res["message"] ?? "حدث خطأ غير متوقع");
+      // ✅ معالجة الأخطاء بشكل صحيح
+      final errorType = res["error"]?.toString() ?? '';
+      final errorMessage = res["message"]?.toString() ?? 'حدث خطأ غير متوقع';
+
+      // ✅ رسائل مفهومة للمستخدم
+      String userFriendlyMessage;
+      
+      if (errorType.contains('wrong_password') || 
+          errorMessage.contains('wrong_password') ||
+          errorMessage.contains('كلمة السر غير صحيحة')) {
+        userFriendlyMessage = "❌ كلمة السر غير صحيحة";
+      } 
+      else if (errorType.contains('no_account') || 
+               errorMessage.contains('no_account') ||
+               errorMessage.contains('المستخدم غير موجود')) {
+        userFriendlyMessage = "❌ اسم المستخدم غير موجود";
       }
+      else if (errorType.contains('no_app_account')) {
+        userFriendlyMessage = "❌ لا يوجد حساب تطبيق لهذا المستخدم";
+      }
+      else if (errorType.contains('http_401')) {
+        userFriendlyMessage = "❌ اسم المستخدم أو كلمة السر غير صحيحة";
+      }
+      else {
+        // ✅ في حالة أي خطأ آخر، نعرض رسالة مناسبة
+        if (errorMessage.contains('wrong') || errorMessage.contains('password')) {
+          userFriendlyMessage = "❌ كلمة السر غير صحيحة";
+        } else if (errorMessage.contains('user') || errorMessage.contains('account')) {
+          userFriendlyMessage = "❌ اسم المستخدم غير موجود";
+        } else {
+          userFriendlyMessage = "❌ $errorMessage";
+        }
+      }
+
+      setState(() => error = userFriendlyMessage);
+
     } catch (e) {
-      // هذا يعني فشل الشبكة أو خطأ غير متوقع
-      setState(() => error = "فشل الاتصال بالسيرفر");
+      setState(() => error = "❌ فشل الاتصال بالسيرفر");
     } finally {
       if (mounted) setState(() => loading = false);
     }
@@ -140,20 +150,20 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // ✅ شعار التطبيق مع الصورة المخصصة
+                // شعار التطبيق
                 Container(
                   margin: const EdgeInsets.only(bottom: 30),
                   child: Column(
                     children: [
                       Container(
-                        width: 120, // ✅ تكبير الحجم قليلاً للصورة
+                        width: 120,
                         height: 120,
                         decoration: BoxDecoration(
-                          color: Colors.white, // ✅ خلفية بيضاء للصورة
+                          color: Colors.white,
                           shape: BoxShape.circle,
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.blue.withValues(alpha: 0.3),
+                              color: Colors.blue.withOpacity(0.3),
                               blurRadius: 20,
                               spreadRadius: 5,
                             ),
@@ -161,10 +171,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         child: ClipOval(
                           child: Image.asset(
-                            'assets/icon/2Neticon.png', // ✅ المسار الصحيح للصورة
+                            'assets/icon/2Neticon.png',
                             fit: BoxFit.cover,
                             errorBuilder: (context, error, stackTrace) {
-                              // ✅ إذا فشل تحميل الصورة، نعرض أيقونة احتياطية
                               return Container(
                                 color: Colors.blue.shade50,
                                 child: Icon(
@@ -197,13 +206,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
 
-                // ✅ حقل اسم المستخدم
+                // حقل اسم المستخدم
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.grey.withValues(alpha: 0.1),
+                        color: Colors.grey.withOpacity(0.1),
                         blurRadius: 10,
                         spreadRadius: 2,
                       ),
@@ -224,13 +233,13 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // ✅ حقل كلمة السر
+                // حقل كلمة السر
                 Container(
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.grey.withValues(alpha: 0.1),
+                        color: Colors.grey.withOpacity(0.1),
                         blurRadius: 10,
                         spreadRadius: 2,
                       ),
@@ -253,7 +262,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // ✅ رسالة الخطأ
+                // ✅ رسالة الخطأ المحسنة
                 if (error != null)
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -269,7 +278,10 @@ class _LoginScreenState extends State<LoginScreen> {
                         Expanded(
                           child: Text(
                             error!,
-                            style: TextStyle(color: Colors.red.shade700),
+                            style: TextStyle(
+                              color: Colors.red.shade700,
+                              fontWeight: FontWeight.w500,
+                            ),
                           ),
                         ),
                       ],
@@ -278,7 +290,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 20),
 
-                // ✅ زر تسجيل الدخول
+                // زر تسجيل الدخول
                 Container(
                   width: double.infinity,
                   height: 55,
@@ -289,7 +301,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.blue.withValues(alpha: 0.3),
+                        color: Colors.blue.withOpacity(0.3),
                         blurRadius: 12,
                         spreadRadius: 2,
                       ),
@@ -316,7 +328,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                   color: Colors.white,
                                 ),
                               ),
-                              SizedBox(width: 12),
+                              const SizedBox(width: 12),
                               Text(
                                 'جاري تسجيل الدخول...',
                                 style: TextStyle(
@@ -339,7 +351,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 30),
 
-                // ✅ معلومات المساعدة
+                // معلومات المساعدة
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(

@@ -7,6 +7,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:async';
 import '../../services/xtream_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class VideoPlayerScreen extends StatefulWidget {
   final String title;
@@ -34,22 +35,60 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   late VideoPlayerController _videoController;
   late ChewieController _chewieController;
   bool _isInitialized = false;
-  bool _isFullScreen = false; // هذا للمقارنة مع القنوات
+  bool _isFullScreen = false;
   bool _showControls = true;
   Timer? _controlsTimer;
   
-  // ✅ قائمة جانبية للأفلام المشابهة
   List<VodItem> _quickMovies = [];
   bool _loadingMovies = false;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  List<String> _savedMovies = [];
+  DateTime _lastTapTime = DateTime.now();
 
   @override
   void initState() {
     super.initState();
     _initializePlayer();
     _loadQuickMovies();
+    _loadSavedMovies();
     _startControlsTimer();
   }
+
+  Future<void> _loadSavedMovies() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _savedMovies = prefs.getStringList('saved_movies') ?? [];
+    });
+  }
+
+  Future<void> _toggleSave(VodItem movie) async {
+    final prefs = await SharedPreferences.getInstance();
+    final String id = movie.streamId.toString();
+    List<String> currentList = List.from(_savedMovies);
+
+    if (currentList.contains(id)) {
+      currentList.remove(id);
+    } else {
+      currentList.add(id);
+    }
+
+    await prefs.setStringList('saved_movies', currentList);
+    setState(() {
+      _savedMovies = currentList;
+    });
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(currentList.contains(id) ? '✅ تمت الإضافة إلى المفضلة' : '🗑️ تمت الإزالة من المفضلة'),
+          duration: const Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  bool _isSaved(VodItem movie) => _savedMovies.contains(movie.streamId.toString());
 
   void _loadQuickMovies() async {
     if (widget.similarMovies != null) {
@@ -83,18 +122,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     });
   }
 
-  void _showControlsTemporarily() {
-    setState(() {
-      _showControls = true;
-    });
-    _startControlsTimer();
-  }
-
   Future<void> _initializePlayer() async {
     try {
       WakelockPlus.enable();
       
-      // ✅ تعيين الاتجاهات المسموح بها (مثل القنوات)
       SystemChrome.setPreferredOrientations([
         DeviceOrientation.portraitUp,
         DeviceOrientation.portraitDown,
@@ -104,9 +135,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
 
       _videoController = VideoPlayerController.networkUrl(
         Uri.parse(widget.url),
-        videoPlayerOptions: VideoPlayerOptions(
-          mixWithOthers: true,
-        ),
+        videoPlayerOptions: VideoPlayerOptions(mixWithOthers: true),
       );
 
       await _videoController.initialize();
@@ -120,9 +149,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
         aspectRatio: _videoController.value.aspectRatio,
         placeholder: Container(
           color: Colors.black,
-          child: const Center(
-            child: CircularProgressIndicator(color: Colors.deepPurple),
-          ),
+          child: const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
         ),
         errorBuilder: (context, errorMessage) {
           return Center(
@@ -131,62 +158,36 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
               children: [
                 const Icon(Icons.error, color: Colors.red, size: 50),
                 const SizedBox(height: 10),
-                Text(
-                  'خطأ في تشغيل الفيديو',
-                  style: TextStyle(color: Colors.red.shade700),
-                ),
+                Text('خطأ في تشغيل الفيديو', style: TextStyle(color: Colors.red.shade700)),
                 const SizedBox(height: 8),
-                Text(
-                  errorMessage,
-                  style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-                  textAlign: TextAlign.center,
-                ),
+                Text(errorMessage, style: TextStyle(color: Colors.grey.shade600, fontSize: 12), textAlign: TextAlign.center),
               ],
             ),
           );
         },
       );
 
-      setState(() {
-        _isInitialized = true;
-      });
+      setState(() => _isInitialized = true);
 
     } catch (e) {
       print('❌ خطأ في تهيئة مشغل الفيديو: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('خطأ في تشغيل الفيديو: $e'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('خطأ في تشغيل الفيديو: $e'), backgroundColor: Colors.red),
         );
       }
     }
   }
 
-  // ✅ هذه الدالة للتبديل بين الوضعين (مثل القنوات)
   void _toggleOrientation() {
     setState(() {
       _isFullScreen = !_isFullScreen;
-      
       if (_isFullScreen) {
-        // ✅ وضع أفقي مع بقاء التحكمات (ليس Full Screen كامل)
-        SystemChrome.setPreferredOrientations([
-          DeviceOrientation.landscapeLeft,
-          DeviceOrientation.landscapeRight,
-        ]);
-        // ✅ إخفاء الـ Status Bar لكن إبقاء التحكمات
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, 
-          overlays: [SystemUiOverlay.bottom]);
+        SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeLeft, DeviceOrientation.landscapeRight]);
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.bottom]);
       } else {
-        // ✅ وضع عمودي
-        SystemChrome.setPreferredOrientations([
-          DeviceOrientation.portraitUp,
-          DeviceOrientation.portraitDown,
-        ]);
-        // ✅ إظهار الـ Status Bar
-        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, 
-          overlays: SystemUiOverlay.values);
+        SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp, DeviceOrientation.portraitDown]);
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: SystemUiOverlay.values);
       }
     });
   }
@@ -208,19 +209,11 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
     try {
       final movieInfo = await widget.xtreamService.getMovieInfo(movie.streamId);
       String extension = 'mp4';
-      
-      if (movieInfo != null && 
-          movieInfo['movie_data'] != null && 
-          movieInfo['movie_data']['container_extension'] != null) {
+      if (movieInfo != null && movieInfo['movie_data'] != null && movieInfo['movie_data']['container_extension'] != null) {
         extension = movieInfo['movie_data']['container_extension'];
       }
-      
-      final url = widget.xtreamService.getMovieUrl(movie.streamId, extension);
-      
-      // إغلاق القائمة الجانبية
+      final url = await widget.xtreamService.getMovieUrl(movie.streamId, extension);
       Navigator.pop(context);
-      
-      // فتح الفيلم الجديد في نفس الشاشة
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -233,180 +226,144 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
           ),
         ),
       );
-      
     } catch (e) {
       print('❌ خطأ في تشغيل الفيلم: $e');
     }
   }
 
- @override
-Widget build(BuildContext context) {
-  return WillPopScope(
-    onWillPop: () async {
-      if (_isFullScreen) {
-        _toggleOrientation();
-        return false;
-      }
-      return true;
-    },
-    child: Scaffold(
-      key: _scaffoldKey,
-      drawer: _buildQuickMoviesDrawer(),
-      body: GestureDetector(
-        onTap: () {
-          // ✅ عند الضغط على الشاشة، نظهر التحكمات
-          setState(() {
-            _showControls = true;
-          });
-          // ✅ نلغي التايمر القديم ونبدأ تايمر جديد
-          _controlsTimer?.cancel();
-          _controlsTimer = Timer(const Duration(seconds: 3), () {
-            if (mounted) {
-              setState(() {
-                _showControls = false;
-              });
-            }
-          });
-        },
-        child: Stack(
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final backgroundColor = isDark ? Colors.grey[900]! : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black;
+
+    return WillPopScope(
+      onWillPop: () async {
+        if (_isFullScreen) {
+          _toggleOrientation();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        key: _scaffoldKey,
+        drawer: _buildQuickMoviesDrawer(backgroundColor, textColor),
+        body: Stack(
           children: [
             // مشغل الفيديو
-            !_isInitialized
-                ? const Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(height: 20),
-                        Text('جاري تحميل المشغل...'),
-                      ],
-                    ),
-                  )
-                : Chewie(controller: _chewieController),
-            
+            if (!_isInitialized)
+              const Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    CircularProgressIndicator(),
+                    SizedBox(height: 20),
+                    Text('جاري تحميل المشغل...'),
+                  ],
+                ),
+              )
+            else
+              Chewie(controller: _chewieController),
+
+            // طبقة شفافة لالتقاط اللمسات
+            Positioned.fill(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () {
+                  final now = DateTime.now();
+                  if (now.difference(_lastTapTime) < const Duration(milliseconds: 300)) return;
+                  _lastTapTime = now;
+
+                  if (mounted) {
+                    setState(() {
+                      _showControls = true;
+                    });
+                    _startControlsTimer();
+                  }
+                },
+              ),
+            ),
+
             // طبقة التحكمات
-            if (_isInitialized) ...[
-              // الخلفية الشفافة
-              if (_showControls)
-                Container(
-                  color: Colors.black.withOpacity(0.3),
-                ),
+            if (_isInitialized && _showControls) ...[
+              Container(color: Colors.black.withOpacity(0.3)),
               
-              // الأزرار العلوية
-             // الأزرار العلوية
-Positioned(
-  top: 40,
-  left: 0,
-  right: 0,
-  child: Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16),
-    child: Row(
-      children: [
-        // ✅ زر القائمة الجانبية - ثابت دائماً
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.5),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.menu, color: Colors.white),
-            onPressed: () {
-              _scaffoldKey.currentState?.openDrawer();
-            },
-          ),
-        ),
-        
-        const Spacer(),
-        
-        // ✅ عنوان الفيلم - يختفي مع التحكمات
-        if (_showControls)
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: Text(
-                widget.title,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-                textAlign: TextAlign.center,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ),
-        
-        const Spacer(),
-        
-        // ✅ زر ملء الشاشة - ثابت دائماً (لا يختفي)
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.black.withOpacity(0.5),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            icon: Icon(
-              _isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen,
-              color: Colors.white,
-            ),
-            onPressed: _toggleOrientation,
-          ),
-        ),
-      ],
-    ),
-  ),
-),
-              
-              // أزرار السطوع
-              if (_showControls)
-                Positioned(
-                  right: 16,
-                  top: 150,
-                  child: Column(
+              Positioned(
+                top: 40,
+                left: 0,
+                right: 0,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
                     children: [
                       Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.5),
-                          shape: BoxShape.circle,
-                        ),
+                        decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), shape: BoxShape.circle),
                         child: IconButton(
-                          icon: const Icon(Icons.brightness_7, color: Colors.white),
-                          onPressed: () => _adjustBrightness(true),
+                          icon: const Icon(Icons.menu, color: Colors.white),
+                          onPressed: () {
+                            _scaffoldKey.currentState?.openDrawer();
+                          },
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      Container(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.5),
-                          shape: BoxShape.circle,
+                      const Spacer(),
+                      Expanded(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), borderRadius: BorderRadius.circular(20)),
+                          child: Text(
+                            widget.title,
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), shape: BoxShape.circle),
                         child: IconButton(
-                          icon: const Icon(Icons.brightness_4, color: Colors.white),
-                          onPressed: () => _adjustBrightness(false),
+                          icon: Icon(_isFullScreen ? Icons.fullscreen_exit : Icons.fullscreen, color: Colors.white),
+                          onPressed: _toggleOrientation,
                         ),
                       ),
                     ],
                   ),
                 ),
+              ),
               
-              // زر الرجوع - يظهر فقط في الوضع العمودي
-              if (_showControls && !_isFullScreen)
+              Positioned(
+                right: 16,
+                top: 150,
+                child: Column(
+                  children: [
+                    Container(
+                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), shape: BoxShape.circle),
+                      child: IconButton(
+                        icon: const Icon(Icons.brightness_7, color: Colors.white),
+                        onPressed: () => _adjustBrightness(true),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), shape: BoxShape.circle),
+                      child: IconButton(
+                        icon: const Icon(Icons.brightness_4, color: Colors.white),
+                        onPressed: () => _adjustBrightness(false),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              if (!_isFullScreen)
                 Positioned(
                   top: 100,
                   left: 16,
                   child: Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.5),
-                      shape: BoxShape.circle,
-                    ),
+                    decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), shape: BoxShape.circle),
                     child: IconButton(
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
-                      onPressed: () {
-                        Navigator.pop(context);
-                      },
+                      onPressed: () => Navigator.pop(context),
                     ),
                   ),
                 ),
@@ -414,12 +371,10 @@ Positioned(
           ],
         ),
       ),
-    ),
-  );
-}
+    );
+  }
 
-  // ✅ بناء القائمة الجانبية للأفلام
-  Widget _buildQuickMoviesDrawer() {
+  Widget _buildQuickMoviesDrawer(Color bgColor, Color textColor) {
     return Drawer(
       width: 300,
       child: Container(
@@ -428,27 +383,15 @@ Positioned(
           children: [
             DrawerHeader(
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Colors.red.shade700, Colors.red.shade500],
-                ),
+                gradient: LinearGradient(colors: [Colors.red.shade700, Colors.red.shade500]),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  const Text(
-                    'أفلام مقترحة',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  const Text('أفلام مقترحة', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  Text(
-                    'اختر فيلماً آخر',
-                    style: TextStyle(color: Colors.white.withOpacity(0.8)),
-                  ),
+                  Text('اختر فيلماً آخر', style: TextStyle(color: Colors.white.withOpacity(0.8))),
                 ],
               ),
             ),
@@ -462,20 +405,30 @@ Positioned(
                           itemCount: _quickMovies.length,
                           itemBuilder: (context, index) {
                             final movie = _quickMovies[index];
+                            final saved = _isSaved(movie);
                             return Card(
                               margin: const EdgeInsets.only(bottom: 8),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                               child: ListTile(
-                                leading: CircleAvatar(
-                                  backgroundColor: Colors.red.shade100,
-                                  backgroundImage: movie.streamIcon.isNotEmpty
-                                      ? CachedNetworkImageProvider(movie.streamIcon)
-                                      : null,
-                                  child: movie.streamIcon.isEmpty
-                                      ? const Icon(Icons.movie, color: Colors.red)
-                                      : null,
+                                leading: ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: movie.streamIcon.isNotEmpty
+                                      ? CachedNetworkImage(
+                                          imageUrl: movie.streamIcon,
+                                          width: 50,
+                                          height: 50,
+                                          fit: BoxFit.cover,
+                                          errorWidget: (_, __, ___) => Container(
+                                            color: Colors.red.shade100,
+                                            child: const Icon(Icons.movie, color: Colors.red),
+                                          ),
+                                        )
+                                      : Container(
+                                          width: 50,
+                                          height: 50,
+                                          color: Colors.red.shade100,
+                                          child: const Icon(Icons.movie, color: Colors.red),
+                                        ),
                                 ),
                                 title: Text(
                                   movie.name,
@@ -485,14 +438,22 @@ Positioned(
                                 ),
                                 subtitle: Text(
                                   widget.xtreamService.getMovieCategoryName(movie.categoryId),
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
+                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                                 ),
-                                trailing: Icon(
-                                  Icons.play_arrow,
-                                  color: Colors.red.shade300,
+                                trailing: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(
+                                        saved ? Icons.bookmark : Icons.bookmark_border,
+                                        color: saved ? Colors.red : Colors.grey,
+                                      ),
+                                      onPressed: () => _toggleSave(movie),
+                                      iconSize: 20,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(Icons.play_arrow, color: Colors.red.shade300),
+                                  ],
                                 ),
                                 onTap: () => _playMovie(movie),
                               ),
@@ -512,7 +473,6 @@ Positioned(
     _videoController.dispose();
     _chewieController.dispose();
     WakelockPlus.disable();
-    // ✅ إعادة تعيين الاتجاهات
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
       DeviceOrientation.portraitDown,
